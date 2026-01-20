@@ -15,6 +15,13 @@ from indicators.indicators import (
     sma, atr, rsi,
     adx, kdj, williams_r, price_position
 )
+from core.validators import (
+    DataFrameValidator,
+    ValidationError
+)
+from core.logger import get_strategy_logger
+
+logger = get_strategy_logger()
 
 
 class StockStrategy:
@@ -27,6 +34,17 @@ class StockStrategy:
         参数:
             basic_df: 股票基础信息DataFrame
         """
+        if basic_df is not None:
+            try:
+                basic_df = DataFrameValidator.validate_dataframe(
+                    basic_df,
+                    ['ts_code', 'name'],
+                    '股票基础信息'
+                )
+            except ValidationError as e:
+                logger.warning(f"股票基础信息验证失败: {e}")
+                basic_df = pd.DataFrame()
+
         self.basic = basic_df if basic_df is not None else pd.DataFrame()
 
     def filter_basic(self, basic: pd.DataFrame, trade_date: str,
@@ -90,41 +108,81 @@ class StockStrategy:
         返回:
             包含得分、理由等的DataFrame
         """
+        # 验证输入数据
+        try:
+            hist = DataFrameValidator.validate_dataframe(
+                hist,
+                ['ts_code', 'trade_date', 'open', 'high', 'low', 'close', 'amount'],
+                '历史行情数据'
+            )
+            hist = DataFrameValidator.validate_numeric_columns(
+                hist,
+                ['open', 'high', 'low', 'close', 'amount'],
+                '历史行情数据'
+            )
+        except ValidationError as e:
+            logger.error(f"历史行情数据验证失败: {e}")
+            return pd.DataFrame()
+
         out_rows = []
         hist_sorted = hist.sort_values(["ts_code", "trade_date"])
         unique_codes = hist_sorted["ts_code"].unique()
 
-        print(f"\n[分析] 开始分析股票（共 {len(unique_codes)} 只）...")
+        logger.info(f"开始分析股票（共 {len(unique_codes)} 只）...")
 
         for i, code in enumerate(unique_codes):
-            g = hist_sorted[hist_sorted["ts_code"] == code]
+            try:
+                g = hist_sorted[hist_sorted["ts_code"] == code]
 
-            if len(g) < max(BREAKOUT_N, MA_SLOW, VOL_LOOKBACK, ATR_N) + 6:
+                if len(g) < max(BREAKOUT_N, MA_SLOW, VOL_LOOKBACK, ATR_N) + 6:
+                    continue
+
+                result = self._analyze_single_stock(g, code, market_ok)
+                if result is not None:
+                    out_rows.append(result)
+
+                if progress_callback:
+                    progress_callback(1)
+
+            except Exception as e:
+                logger.error(f"分析股票{code}时发生错误: {e}")
                 continue
 
-            result = self._analyze_single_stock(g, code, market_ok)
-            if result is not None:
-                out_rows.append(result)
-
-            if progress_callback:
-                progress_callback(1)
-
         if not out_rows:
+            logger.warning("没有符合条件的股票")
             return pd.DataFrame()
 
         out = pd.DataFrame(out_rows)
         out = out.sort_values(["candidate", "score"],
                              ascending=[False, False])
+        logger.info(f"分析完成，共{len(out)}只股票符合条件")
         return out
 
     def _analyze_single_stock(self, stock_data: pd.DataFrame,
                             code: str, market_ok: bool) -> dict:
         """分析单只股票"""
-        last = stock_data.iloc[-1]
-        close = stock_data["close"].astype(float)
-        high = stock_data["high"].astype(float)
-        low = stock_data["low"].astype(float)
-        amount = stock_data["amount"].astype(float)
+        try:
+            # 验证股票数据
+            stock_data = DataFrameValidator.validate_dataframe(
+                stock_data,
+                ['open', 'high', 'low', 'close', 'amount'],
+                f'{code}股票数据'
+            )
+
+            last = stock_data.iloc[-1]
+            close = stock_data["close"].astype(float)
+            high = stock_data["high"].astype(float)
+            low = stock_data["low"].astype(float)
+            amount = stock_data["amount"].astype(float)
+
+            # 验证至少有一个有效价格
+            if close.isna().all() or high.isna().all() or low.isna().all():
+                logger.warning(f"{code}: 价格数据全为NaN")
+                return None
+
+        except Exception as e:
+            logger.error(f"{code}数据验证失败: {e}")
+            return None
 
         # 计算基础指标
         ma20 = sma(close, MA_FAST).iloc[-1]
@@ -153,8 +211,12 @@ class StockStrategy:
 
         # 量能确认
         avg_amt20 = amount.iloc[-VOL_LOOKBACK:].mean()
-        vol_ratio = float(last["amount"]) / avg_amt20 if avg_amt20 > 0 else np.nan
-        vol_confirm = (np.isfinite(vol_ratio) and vol_ratio >= VOL_CONFIRM_MULT)
+        if avg_amt20 <= 0:
+            vol_ratio = np.nan
+            vol_confirm = False
+        else:
+            vol_ratio = float(last["amount"]) / avg_amt20
+            vol_confirm = (np.isfinite(vol_ratio) and vol_ratio >= VOL_CONFIRM_MULT)
 
         # 趋势结构
         trend_struct = (ma20 > ma60) and (ma60_slope > 0)
@@ -165,14 +227,21 @@ class StockStrategy:
         not_too_high = not (np.isfinite(pos_val) and pos_val > 0.9)  # 价格不在过高位置
 
         # 20日收益
-        ret20 = (close.iloc[-1] / close.iloc[-21] - 1) if len(close) >= 21 else np.nan
+        if len(close) >= 21 and close.iloc[-21] > 0:
+            ret20 = (close.iloc[-1] / close.iloc[-21] - 1)
+        else:
+            ret20 = np.nan
 
         # 过滤
-        if float(last["close"]) < MIN_PRICE:
-            return None
-        if avg_amt20 < MIN_AVG_AMOUNT_20D:
-            return None
-        if EXCLUDE_ONE_WORD_LIMITUP and self.is_one_word_limitup(last):
+        try:
+            if float(last["close"]) < MIN_PRICE:
+                return None
+            if not np.isfinite(avg_amt20) or avg_amt20 < MIN_AVG_AMOUNT_20D:
+                return None
+            if EXCLUDE_ONE_WORD_LIMITUP and self.is_one_word_limitup(last):
+                return None
+        except Exception as e:
+            logger.error(f"{code}过滤条件检查失败: {e}")
             return None
 
         # 候选/观察逻辑（增强版：加入新指标判断）
@@ -180,7 +249,12 @@ class StockStrategy:
         is_candidate = (signal_hits >= 4) and not_overbought and not_too_high and \
                       (np.isfinite(rsi14) and rsi14 <= RSI_MAX)
 
-        dist_to_break = (float(breakout_price_close) / entry - 1) if entry > 0 else np.nan
+        # 安全计算距离突破的距离
+        if entry > 0 and np.isfinite(breakout_price_close):
+            dist_to_break = (float(breakout_price_close) / entry - 1)
+        else:
+            dist_to_break = np.nan
+
         is_watch = (signal_hits >= 3) and \
                   (np.isfinite(dist_to_break) and dist_to_break <= 0.015) and \
                   not_overbought
@@ -190,9 +264,18 @@ class StockStrategy:
 
         # 止损价
         hard_stop = entry * (1 - MAX_LOSS_PCT)
-        atr_stop = entry - ATR_MULT * float(atr14) if np.isfinite(atr14) else hard_stop
+        if np.isfinite(atr14) and atr14 > 0:
+            atr_stop = entry - ATR_MULT * float(atr14)
+        else:
+            atr_stop = hard_stop
         stop_price = max(hard_stop, atr_stop)
-        stop_pct = (stop_price / entry - 1)
+
+        # 安全计算止损百分比
+        if entry > 0:
+            stop_pct = (stop_price / entry - 1)
+        else:
+            logger.warning(f"{code}: 入场价格为0")
+            stop_pct = -MAX_LOSS_PCT
 
         # 评分（增强版）
         total, reasons = self._calculate_score(
@@ -232,7 +315,11 @@ class StockStrategy:
         reasons = []
 
         # 突破强度
-        breakout_strength = max(0.0, min(0.08, (entry / float(breakout_price) - 1)))
+        if np.isfinite(breakout_price) and breakout_price > 0:
+            breakout_strength = max(0.0, min(0.08, (entry / float(breakout_price) - 1)))
+        else:
+            breakout_strength = 0.0
+
         score_trend = 30 * (
             0.50 * (1 if breakout else 0)
             + 0.20 * (1 if trend_struct else 0)
@@ -267,17 +354,21 @@ class StockStrategy:
             reasons.append(f"KDJ-J≈{j_val:.1f} ({'过热' if j_val > 100 else '超卖' if j_val < 0 else '正常'})")
 
         # 20日收益
-        ret20 = (close.iloc[-1] / close.iloc[-21] - 1) if len(close) >= 21 else np.nan
-        if np.isfinite(ret20):
-            reasons.append(f"近20日收益≈{ret20*100:.2f}%")
+        if len(close) >= 21 and close.iloc[-21] > 0:
+            ret20 = (close.iloc[-1] / close.iloc[-21] - 1)
+            if np.isfinite(ret20):
+                reasons.append(f"近20日收益≈{ret20*100:.2f}%")
 
         # 价格位置
         if np.isfinite(pos_val):
             reasons.append(f"价格位置≈{pos_val*100:.1f}% ({'高位' if pos_val > 0.8 else '低位' if pos_val < 0.2 else '中位'})")
 
         # 风险得分
-        vol20 = close.pct_change().iloc[-21:].std() if len(close) >= 21 else np.nan
-        vol_penalty = 0.0 if (np.isfinite(vol20) and vol20 < 0.035) else 0.15
+        if len(close) >= 21:
+            vol20 = close.pct_change().iloc[-21:].std()
+            vol_penalty = 0.0 if (np.isfinite(vol20) and vol20 < 0.035) else 0.15
+        else:
+            vol_penalty = 0.15
 
         # 价格位置惩罚（高位惩罚）
         pos_penalty = 0.0

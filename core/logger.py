@@ -153,6 +153,11 @@ def get_reporter_logger() -> logging.Logger:
     return Logger.get_logger('reporter')
 
 
+def get_validators_logger() -> logging.Logger:
+    """获取Validators专用logger"""
+    return Logger.get_logger('validators')
+
+
 if __name__ == "__main__":
     # 测试日志系统
     Logger.setup_logging(log_level="DEBUG")

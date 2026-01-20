@@ -6,19 +6,55 @@ import numpy as np
 import pandas as pd
 from typing import Dict
 
+from core.validators import (
+    ValidationError,
+    ParameterValidator,
+    SafeCalculator,
+    DataFrameValidator
+)
+from core.logger import get_indicator_logger
+
+logger = get_indicator_logger()
+
+
+def _validate_series_length(series: pd.Series, min_length: int, param_name: str = "Series"):
+    """
+    验证序列长度
+
+    参数:
+        series: 待验证的序列
+        min_length: 最小长度
+        param_name: 参数名称
+    """
+    if len(series) < min_length:
+        logger.warning(f"{param_name}长度不足: {len(series)} < {min_length}")
+
 
 def sma(s: pd.Series, n: int) -> pd.Series:
     """简单移动平均线 Simple Moving Average"""
+    # 验证参数
+    n = ParameterValidator.validate_period(n, "SMA周期", min_period=1, max_period=1000)
+
+    if len(s) < n:
+        logger.debug(f"SMA: 数据长度{len(s)}小于周期{n}")
+
     return s.rolling(n, min_periods=n).mean()
 
 
 def true_range(high, low, prev_close):
     """真实波幅 True Range"""
+    # 验证输入长度
+    if isinstance(high, pd.Series):
+        _validate_series_length(high, 2, "True Range high")
+
     return np.maximum(high - low, np.maximum((high - prev_close).abs(), (low - prev_close).abs()))
 
 
 def atr(df: pd.DataFrame, n: int) -> pd.Series:
     """平均真实波幅 Average True Range"""
+    n = ParameterValidator.validate_period(n, "ATR周期", min_period=1, max_period=100)
+
+    df = DataFrameValidator.validate_dataframe(df, ['high', 'low', 'close'], "ATR输入")
     prev_close = df["close"].shift(1)
     tr = true_range(df["high"], df["low"], prev_close)
     return tr.rolling(n, min_periods=n).mean()
@@ -26,17 +62,25 @@ def atr(df: pd.DataFrame, n: int) -> pd.Series:
 
 def rsi(close: pd.Series, n: int = 14) -> pd.Series:
     """相对强弱指数 Relative Strength Index"""
+    n = ParameterValidator.validate_period(n, "RSI周期", min_period=2, max_period=100)
+
+    if len(close) < n + 1:
+        logger.debug(f"RSI: 数据长度{len(close)}不足{n+1}")
+
     delta = close.diff()
     up = delta.clip(lower=0)
     down = -delta.clip(upper=0)
     roll_up = up.rolling(n, min_periods=n).mean()
     roll_down = down.rolling(n, min_periods=n).mean()
-    rs = roll_up / (roll_down.replace(0, np.nan))
+
+    # 使用安全除法
+    rs = SafeCalculator.safe_divide(roll_up, roll_down, default=np.nan)
     return 100 - (100 / (1 + rs))
 
 
 def ema(s: pd.Series, n: int) -> pd.Series:
     """指数移动平均线 Exponential Moving Average"""
+    n = ParameterValidator.validate_period(n, "EMA周期", min_period=1, max_period=1000)
     return s.ewm(span=n, adjust=False).mean()
 
 
@@ -72,11 +116,16 @@ def bollinger_bands(close: pd.Series, n: int = 20, num_std: float = 2.0) -> dict
     返回:
         dict: {'upper': Series, 'middle': Series, 'lower': Series, 'width': Series}
     """
+    n = ParameterValidator.validate_period(n, "布林带周期", min_period=2, max_period=200)
+    num_std = ParameterValidator.validate_positive_number(num_std, "布林带标准差倍数")
+
     middle = sma(close, n)
     std = close.rolling(n, min_periods=n).std()
     upper = middle + num_std * std
     lower = middle - num_std * std
-    width = (upper - lower) / middle
+
+    # 安全计算宽度
+    width = SafeCalculator.safe_divide(upper - lower, middle, default=np.nan)
 
     return {
         'upper': upper,
@@ -103,6 +152,11 @@ def adx(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> pd.Se
     返回:
         ADX值序列
     """
+    n = ParameterValidator.validate_period(n, "ADX周期", min_period=2, max_period=100)
+
+    if len(high) < n + 1:
+        logger.debug(f"ADX: 数据长度{len(high)}不足{n+1}")
+
     plus_dm = high.diff()
     minus_dm = low.diff()
 
@@ -113,10 +167,19 @@ def adx(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> pd.Se
     tr = true_range(high, low, close.shift(1))
     atr_val = atr(pd.DataFrame({'high': high, 'low': low, 'close': close}), n)
 
-    plus_di = 100 * (plus_dm.rolling(n, min_periods=n).mean() / atr_val)
-    minus_di = 100 * (minus_dm.rolling(n, min_periods=n).mean() / atr_val)
+    plus_di = SafeCalculator.safe_divide(
+        100 * plus_dm.rolling(n, min_periods=n).mean(),
+        atr_val
+    )
+    minus_di = SafeCalculator.safe_divide(
+        100 * minus_dm.rolling(n, min_periods=n).mean(),
+        atr_val
+    )
 
-    dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+    dx = SafeCalculator.safe_divide(
+        100 * abs(plus_di - minus_di),
+        plus_di + minus_di
+    )
     adx_val = dx.rolling(n, min_periods=n).mean()
 
     return adx_val
@@ -144,10 +207,22 @@ def kdj(high: pd.Series, low: pd.Series, close: pd.Series,
     返回:
         dict: {'k': K线, 'd': D线, 'j': J线}
     """
+    n = ParameterValidator.validate_period(n, "KDJ周期", min_period=1, max_period=100)
+    m1 = ParameterValidator.validate_period(m1, "KDJ m1", min_period=1, max_period=50)
+    m2 = ParameterValidator.validate_period(m2, "KDJ m2", min_period=1, max_period=50)
+
+    if len(high) < n:
+        logger.debug(f"KDJ: 数据长度{len(high)}不足{n}")
+
     lowest_low = low.rolling(n, min_periods=n).min()
     highest_high = high.rolling(n, min_periods=n).max()
 
-    rsv = 100 * (close - lowest_low) / (highest_high - lowest_low)
+    # 安全计算RSV
+    rsv = SafeCalculator.safe_divide(
+        100 * (close - lowest_low),
+        highest_high - lowest_low,
+        default=50  # 缺失时使用中性值
+    )
 
     k = rsv.ewm(com=m1-1, adjust=False).mean()
     d = k.ewm(com=m2-1, adjust=False).mean()
@@ -173,10 +248,17 @@ def williams_r(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -
     返回:
         Williams %R值序列
     """
+    n = ParameterValidator.validate_period(n, "Williams %R周期", min_period=1, max_period=100)
+
     highest_high = high.rolling(n, min_periods=n).max()
     lowest_low = low.rolling(n, min_periods=n).min()
 
-    wr = -100 * (highest_high - close) / (highest_high - lowest_low)
+    # 安全计算Williams %R
+    wr = SafeCalculator.safe_divide(
+        -100 * (highest_high - close),
+        highest_high - lowest_low,
+        default=-50
+    )
     return wr
 
 
@@ -218,13 +300,23 @@ def money_flow_index(high: pd.Series, low: pd.Series, close: pd.Series,
     返回:
         MFI值序列
     """
+    n = ParameterValidator.validate_period(n, "MFI周期", min_period=2, max_period=100)
+
+    if len(high) < n + 1:
+        logger.debug(f"MFI: 数据长度{len(high)}不足{n+1}")
+
     typical_price = (high + low + close) / 3
     money_flow = typical_price * volume
 
     positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0)
     negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0)
 
-    mfr = positive_flow.rolling(n, min_periods=n).sum() / negative_flow.rolling(n, min_periods=n).sum()
+    # 安全计算MFI
+    mfr = SafeCalculator.safe_divide(
+        positive_flow.rolling(n, min_periods=n).sum(),
+        negative_flow.rolling(n, min_periods=n).sum(),
+        default=1.0
+    )
     mfi = 100 - (100 / (1 + mfr))
 
     return mfi
@@ -297,11 +389,18 @@ def price_position(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 2
     返回:
         价格位置序列 (0-1)
     """
+    n = ParameterValidator.validate_period(n, "价格位置周期", min_period=2, max_period=500)
+
     highest_high = high.rolling(n, min_periods=n).max()
     lowest_low = low.rolling(n, min_periods=n).min()
 
-    position = (close - lowest_low) / (highest_high - lowest_low)
-    return position
+    # 安全计算位置，并限制在0-1范围内
+    position = SafeCalculator.safe_divide(
+        close - lowest_low,
+        highest_high - lowest_low,
+        default=0.5
+    )
+    return SafeCalculator.clip_value(position, 0, 1)
 
 
 def volume_price_trend(close: pd.Series, volume: pd.Series) -> pd.Series:

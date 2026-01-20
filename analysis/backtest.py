@@ -17,6 +17,15 @@ from config.settings import (
 )
 from indicators.indicators import sma, atr
 from strategy.strategy import StockStrategy
+from core.validators import (
+    ValidationError,
+    ConfigValidator,
+    DateValidator,
+    SafeCalculator
+)
+from core.logger import get_backtest_logger
+
+logger = get_backtest_logger()
 
 
 @dataclass
@@ -62,6 +71,39 @@ class BacktestEngine:
             strategy: 选股策略实例
             fetcher: 数据获取器实例
         """
+        # 验证配置
+        config_dict = {
+            'initial_capital': config.initial_capital,
+            'max_positions': config.max_positions,
+            'position_size': config.position_size,
+            'slippage': config.slippage,
+            'commission': config.commission,
+            'stop_loss': config.stop_loss,
+            'take_profit': config.take_profit,
+            'max_holding_days': config.max_holding_days,
+            'rebalance_days': config.rebalance_days,
+            'start_date': config.start_date,
+            'end_date': config.end_date
+        }
+
+        try:
+            validated_config = ConfigValidator.validate_backtest_config(config_dict)
+            # 更新配置对象
+            config.initial_capital = validated_config['initial_capital']
+            config.max_positions = validated_config['max_positions']
+            config.position_size = validated_config['position_size']
+            config.slippage = validated_config['slippage']
+            config.commission = validated_config['commission']
+            config.stop_loss = validated_config['stop_loss']
+            config.take_profit = validated_config['take_profit']
+            config.max_holding_days = validated_config['max_holding_days']
+            config.rebalance_days = validated_config['rebalance_days']
+            config.start_date = validated_config.get('start_date', config.start_date)
+            config.end_date = validated_config.get('end_date', config.end_date)
+        except ValidationError as e:
+            logger.error(f"回测配置验证失败: {e}")
+            raise
+
         self.config = config
         self.strategy = strategy
         self.fetcher = fetcher
@@ -76,16 +118,27 @@ class BacktestEngine:
         返回:
             回测结果字典，包含收益率、夏普比率、最大回撤等指标
         """
-        print(f"\n{'='*60}")
-        print(f"开始回测: {self.config.start_date} 至 {self.config.end_date}")
-        print(f"初始资金: {self.config.initial_capital:,.0f} 元")
-        print(f"{'='*60}\n")
+        logger.info(f"{'='*60}")
+        logger.info(f"开始回测: {self.config.start_date} 至 {self.config.end_date}")
+        logger.info(f"初始资金: {self.config.initial_capital:,.0f} 元")
+        logger.info(f"{'='*60}")
+
+        try:
+            # 验证日期范围
+            DateValidator.validate_date_range(self.config.start_date, self.config.end_date)
+        except ValidationError as e:
+            logger.error(f"回测日期范围无效: {e}")
+            return {}
 
         # 获取交易日历
-        all_trade_dates = self.fetcher.get_trade_cal(
-            end_date=self.config.end_date,
-            lookback_calendar_days=1000
-        )
+        try:
+            all_trade_dates = self.fetcher.get_trade_cal(
+                end_date=self.config.end_date,
+                lookback_calendar_days=1000
+            )
+        except Exception as e:
+            logger.error(f"获取交易日历失败: {e}")
+            return {}
 
         # 筛选回测日期范围
         backtest_dates = [
@@ -94,10 +147,10 @@ class BacktestEngine:
         ]
 
         if not backtest_dates:
-            print("错误: 没有可用的回测日期")
+            logger.error("没有可用的回测日期")
             return {}
 
-        print(f"回测交易日数: {len(backtest_dates)}\n")
+        logger.info(f"回测交易日数: {len(backtest_dates)}")
 
         # 初始化
         capital = self.config.initial_capital
@@ -149,47 +202,57 @@ class BacktestEngine:
             capital: 当前现金
         """
         for ts_code in list(self.positions.keys()):
-            position = self.positions[ts_code]
-            current_data = daily_df[daily_df['ts_code'] == ts_code]
+            try:
+                position = self.positions[ts_code]
+                current_data = daily_df[daily_df['ts_code'] == ts_code]
 
-            if current_data.empty:
+                if current_data.empty:
+                    logger.warning(f"{ts_code}: 当日无行情数据")
+                    continue
+
+                current_price = float(current_data.iloc[0]['close'])
+                high_price = float(current_data.iloc[0]['high'])
+                low_price = float(current_data.iloc[0]['low'])
+
+                if position['entry_price'] <= 0:
+                    logger.error(f"{ts_code}: 入场价格无效: {position['entry_price']}")
+                    continue
+
+                # 计算收益率
+                pnl_pct = SafeCalculator.safe_percentage_change(position['entry_price'], current_price)
+
+                # 计算持仓天数（交易日）
+                holding_days = self._calc_holding_days(position['entry_date'], trade_date)
+
+                # 判断是否触发平仓条件
+                exit_reason = None
+
+                # 1. 硬止损（固定百分比）
+                if pnl_pct <= self.config.stop_loss:
+                    exit_reason = 'stop_loss'
+                # 2. ATR止损（追踪止损）
+                elif 'atr_stop_price' in position and low_price <= position['atr_stop_price']:
+                    exit_reason = 'atr_stop'
+                # 3. 移动止盈（保本止盈）
+                elif 'breakeven_price' in position and low_price <= position['breakeven_price'] and pnl_pct > 0.1:
+                    exit_reason = 'breakeven'
+                # 4. 固定止盈
+                elif pnl_pct >= self.config.take_profit:
+                    exit_reason = 'take_profit'
+                # 5. 最大持仓天数
+                elif holding_days >= self.config.max_holding_days:
+                    exit_reason = 'max_hold'
+
+                # 更新追踪止损价格（当盈利达到一定比例时，移动止损到成本价）
+                if pnl_pct > 0.1 and 'breakeven_price' not in position:
+                    position['breakeven_price'] = position['entry_price']
+
+                if exit_reason:
+                    self._close_position(ts_code, current_price, trade_date, exit_reason, capital)
+
+            except Exception as e:
+                logger.error(f"检查持仓{ts_code}时发生错误: {e}")
                 continue
-
-            current_price = float(current_data.iloc[0]['close'])
-            high_price = float(current_data.iloc[0]['high'])
-            low_price = float(current_data.iloc[0]['low'])
-
-            # 计算收益率
-            pnl_pct = (current_price - position['entry_price']) / position['entry_price']
-
-            # 计算持仓天数（交易日）
-            holding_days = self._calc_holding_days(position['entry_date'], trade_date)
-
-            # 判断是否触发平仓条件
-            exit_reason = None
-
-            # 1. 硬止损（固定百分比）
-            if pnl_pct <= self.config.stop_loss:
-                exit_reason = 'stop_loss'
-            # 2. ATR止损（追踪止损）
-            elif 'atr_stop_price' in position and low_price <= position['atr_stop_price']:
-                exit_reason = 'atr_stop'
-            # 3. 移动止盈（保本止盈）
-            elif 'breakeven_price' in position and low_price <= position['breakeven_price'] and pnl_pct > 0.1:
-                exit_reason = 'breakeven'
-            # 4. 固定止盈
-            elif pnl_pct >= self.config.take_profit:
-                exit_reason = 'take_profit'
-            # 5. 最大持仓天数
-            elif holding_days >= self.config.max_holding_days:
-                exit_reason = 'max_hold'
-
-            # 更新追踪止损价格（当盈利达到一定比例时，移动止损到成本价）
-            if pnl_pct > 0.1 and 'breakeven_price' not in position:
-                position['breakeven_price'] = position['entry_price']
-
-            if exit_reason:
-                self._close_position(ts_code, current_price, trade_date, exit_reason, capital)
 
     def _run_stock_selection(self, trade_date: str, all_trade_dates: List[str], capital: float):
         """
@@ -296,6 +359,12 @@ class BacktestEngine:
         """
         position = self.positions.get(ts_code)
         if not position:
+            logger.warning(f"平仓失败: 持仓中不存在{ts_code}")
+            return
+
+        # 验证价格
+        if exit_price <= 0:
+            logger.error(f"{ts_code}: 平仓价格无效: {exit_price}")
             return
 
         # 计算滑点后的价格
@@ -309,7 +378,13 @@ class BacktestEngine:
         net_pnl = (price_with_slippage * position['shares'] - commission) - \
                   (position['entry_price'] * position['shares'])
 
-        pnl_pct = net_pnl / (position['entry_price'] * position['shares'])
+        # 安全计算收益率
+        cost = position['entry_price'] * position['shares']
+        if cost > 0:
+            pnl_pct = net_pnl / cost
+        else:
+            logger.error(f"{ts_code}: 持仓成本为0")
+            pnl_pct = 0.0
 
         # 更新现金
         capital += price_with_slippage * position['shares'] - commission
@@ -329,8 +404,8 @@ class BacktestEngine:
         )
         self.trades.append(trade)
 
-        print(f"  -> 平仓: {ts_code} {position['name']} "
-              f"@ {exit_price:.2f}, 收益: {pnl_pct*100:.2f}%, 原因: {reason}")
+        logger.info(f"平仓: {ts_code} {position['name']} "
+                  f"@ {exit_price:.2f}, 收益: {pnl_pct*100:.2f}%, 原因: {reason}")
 
         # 移除持仓
         del self.positions[ts_code]
@@ -363,10 +438,15 @@ class BacktestEngine:
         positions_value = 0.0
 
         for ts_code, position in self.positions.items():
-            current_data = daily_df[daily_df['ts_code'] == ts_code]
-            if not current_data.empty:
-                current_price = float(current_data.iloc[0]['close'])
-                positions_value += current_price * position['shares']
+            try:
+                current_data = daily_df[daily_df['ts_code'] == ts_code]
+                if not current_data.empty:
+                    current_price = float(current_data.iloc[0]['close'])
+                    if current_price > 0 and position['shares'] > 0:
+                        positions_value += current_price * position['shares']
+            except Exception as e:
+                logger.error(f"计算{ts_code}持仓价值失败: {e}")
+                continue
 
         total_equity = cash + positions_value
 
@@ -379,18 +459,23 @@ class BacktestEngine:
 
     def _calc_holding_days(self, entry_date: str, exit_date: str) -> int:
         """计算持仓天数（交易日）"""
-        all_dates = self.fetcher.get_trade_cal(
-            end_date=exit_date,
-            lookback_calendar_days=1000
-        )
+        try:
+            all_dates = self.fetcher.get_trade_cal(
+                end_date=exit_date,
+                lookback_calendar_days=1000
+            )
 
-        if entry_date not in all_dates or exit_date not in all_dates:
+            if entry_date not in all_dates or exit_date not in all_dates:
+                logger.warning(f"无法计算持仓天数: {entry_date} 或 {exit_date} 不在交易日历中")
+                return 0
+
+            entry_idx = all_dates.index(entry_date)
+            exit_idx = all_dates.index(exit_date)
+
+            return exit_idx - entry_idx
+        except Exception as e:
+            logger.error(f"计算持仓天数失败: {e}")
             return 0
-
-        entry_idx = all_dates.index(entry_date)
-        exit_idx = all_dates.index(exit_date)
-
-        return exit_idx - entry_idx
 
     def _calculate_metrics(self) -> Dict:
         """
