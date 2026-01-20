@@ -5,13 +5,13 @@
 import pandas as pd
 import numpy as np
 
-from config import (
+from config.settings import (
     BREAKOUT_N, MA_FAST, MA_SLOW, VOL_LOOKBACK,
     VOL_CONFIRM_MULT, RSI_MAX, MIN_PRICE,
     MIN_AVG_AMOUNT_20D, EXCLUDE_ONE_WORD_LIMITUP,
     MAX_LOSS_PCT, ATR_N, ATR_MULT
 )
-from indicators import (
+from indicators.indicators import (
     sma, atr, rsi,
     adx, kdj, williams_r, price_position
 )
