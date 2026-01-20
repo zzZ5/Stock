@@ -23,6 +23,18 @@ pyyaml>=6.0
 # 科学计算
 scipy>=1.10.0
 
+# 机器学习
+scikit-learn>=1.2.0
+
+# 统计模型（可选）
+statsmodels>=0.14.0
+
+# XGBoost（可选）
+xgboost>=1.7.0
+
+# LightGBM（可选）
+lightgbm>=4.0.0
+
 # 测试框架
 pytest>=7.4.0
 pytest-cov>=4.1.0
