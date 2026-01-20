@@ -14,6 +14,9 @@
 - **报告生成**: 自动生成详细的Markdown格式报告
 - **日志系统**: 完整的日志记录和追踪功能
 - **图表可视化**: 丰富的图表绘制功能（K线图、指标图、回测图、参数分析图）
+- **配置管理**: 支持YAML/JSON格式的配置文件，灵活的配置管理
+- **缓存优化**: LRU缓存、双级缓存、自动过期、Gzip压缩
+- **并发处理**: 线程池、令牌桶限流、批量处理、自动重试
 - **单元测试**: 完整的测试框架和测试用例
 - **模块化设计**: 清晰的目录结构，便于维护和扩展
 
@@ -68,28 +71,62 @@ python run_tests.py --coverage
 
 ## 配置参数
 
-在 `config/settings.py` 中修改策略参数：
+系统支持两种配置方式：
+
+### 方式1：使用配置文件（推荐）
+
+使用 YAML 或 JSON 配置文件：
 
 ```python
+from app_config import Config
+
+# 加载配置文件
+Config.load('config.yaml')  # 或 'config.json'
+
+# 获取配置值
+top_n = Config.get('TOP_N')
+log_level = Config.get('LOG_LEVEL')
+
+# 运行时设置（仅内存生效）
+Config.set('TOP_N', 30)
+```
+
+### 方式2：编辑配置文件
+
+编辑 `config.yaml` 或 `config.json` 文件：
+
+```yaml
 # 选股策略参数
-TOP_N = 20                      # 返回TopN候选股票
-BREAKOUT_N = 60                 # 60日突破
-MA_FAST = 20                    # 快速均线
-MA_SLOW = 60                    # 慢速均线
-VOL_CONFIRM_MULT = 1.2          # 放量确认阈值
-RSI_MAX = 80                    # 过热过滤阈值
+TOP_N: 20                      # 返回TopN候选股票
+BREAKOUT_N: 60                 # 60日突破
+MA_FAST: 20                    # 快速均线
+MA_SLOW: 60                    # 慢速均线
+VOL_CONFIRM_MULT: 1.2          # 放量确认阈值
+RSI_MAX: 80                    # 过热过滤阈值
 
 # 风险参数
-MAX_LOSS_PCT = -0.10           # -10%硬止损
-ATR_MULT = 2.5                  # 波动止损倍数
+MAX_LOSS_PCT: 0.10            # -10%硬止损
+ATR_MULT: 2.5                  # 波动止损倍数
 
 # 日志配置
-LOG_LEVEL = "INFO"              # 日志级别 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-LOG_DIR = "./logs"              # 日志文件目录
-LOG_CONSOLE_OUTPUT = True       # 是否输出到控制台
-LOG_FILE_OUTPUT = True          # 是否输出到文件
-LOG_MAX_FILE_SIZE = 10 * 1024 * 1024  # 单个日志文件最大大小（字节）
-LOG_BACKUP_COUNT = 5            # 保留的日志文件备份数量
+LOG_LEVEL: "INFO"              # 日志级别 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+LOG_DIR: "./logs"              # 日志文件目录
+LOG_CONSOLE_OUTPUT: true       # 是否输出到控制台
+LOG_FILE_OUTPUT: true          # 是否输出到文件
+LOG_MAX_FILE_SIZE: 10485760   # 单个日志文件最大大小（字节）
+LOG_BACKUP_COUNT: 5            # 保留的日志文件备份数量
+```
+
+### 生成配置模板
+
+```python
+from app_config import generate_config_template
+
+# 生成 YAML 模板
+generate_config_template('my_config.yaml', format='yaml')
+
+# 生成 JSON 模板
+generate_config_template('my_config.json', format='json')
 ```
 
 ## 项目结构
@@ -835,7 +872,19 @@ print(opt_report)
 
 ## 版本历史
 
-### v2.7.0 (最新)
+### v2.8.0 (最新)
+- 新增配置文件支持（YAML/JSON格式）
+- 实现灵活的配置加载器（ConfigLoader）
+- 实现全局配置管理器（Config单例模式）
+- 添加配置验证器（ConfigValidator）
+- 支持配置项类型验证和范围检查
+- 提供配置模板生成功能
+- 支持运行时配置修改（仅内存生效）
+- 实现配置热重载功能
+- 添加配置加载器和管理器的完整测试用例（11个测试类，48个测试）
+- 提供项目默认配置文件（config.yaml 和 config.json）
+
+### v2.7.0
 - 优化缓存机制 - 实现内存缓存+LRU策略，提升缓存命中率
 - 实现线程安全的速率限制器（令牌桶算法）
 - 增强并发处理能力 - 线程池、进程池、批量处理器

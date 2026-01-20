@@ -42,6 +42,7 @@ python run_tests.py --type config
 python run_tests.py --type logger
 python run_tests.py --type validators
 python run_tests.py --type visualization
+python run_tests.py --type cache_concurrent
 ```
 
 ### 运行测试并生成覆盖率报告
@@ -113,6 +114,20 @@ python run_tests.py --coverage
 - **TestThreadPool**: 测试线程池
 - **TestBatchProcessor**: 测试批量处理器
 - **TestRetryDecorator**: 测试重试装饰器
+
+### tests/test_config_loader.py
+测试配置文件加载器功能：
+- **TestConfigValidator**: 测试配置验证器（策略参数、缓存参数、日志参数等）
+- **TestConfigLoader**: 测试配置加载器（YAML/JSON加载、配置合并、模板生成）
+- **TestConvenienceFunctions**: 测试便捷函数
+- **TestDefaultConfig**: 测试默认配置的完整性和类型
+- **TestProjectConfigFiles**: 测试项目配置文件的存在和加载
+
+### tests/test_config_manager.py
+测试全局配置管理器功能：
+- **TestConfig**: 测试Config单例模式（加载、重载、获取、设置）
+- **TestConfigGetters**: 测试配置项getter函数（策略、缓存、报告、回测、指数、日志参数）
+- **TestConfigCustomization**: 测试配置自定义功能
 
 ## pytest 配置
 
