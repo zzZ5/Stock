@@ -60,6 +60,33 @@ python run_tests.py --coverage
 ## 测试文件说明
 
 ### tests/test_indicators.py
+测试基础技术指标计算函数：
+- **TestSMA**: 测试简单移动平均线
+- **TestEMA**: 测试指数移动平均线
+- **TestATR**: 测试平均真实波幅
+- **TestRSI**: 测试相对强弱指标
+- **TestMACD**: 测试MACD指标
+- **TestKDJ**: 测试KDJ指标
+- **TestWilliamsR**: 测试威廉指标
+- **TestPricePosition**: 测试价格位置指标
+- **TestADX**: 测试ADX指标
+- **TestBollingerBands**: 测试布林带
+- **TestOBV**: 测试能量潮指标
+
+### tests/test_indicators_extended.py
+测试扩展技术指标计算函数：
+- **TestAdvancedMovingAverages**: 测试高级移动平均线（WMA、DEMA、TEMA、Hull MA）
+- **TestTrendIndicators**: 测试趋势指标（SuperTrend、Ichimoku、Donchian Channels、Pivot Points、Aroon）
+- **TestEnvelopeIndicators**: 测试包络线指标（Acceleration Bands、Envelope SMA）
+- **TestDivergenceIndicators**: 测试背离指标（RSI Divergence）
+- **TestVolumeIndicators**: 测试成交量指标（Volume Weighted MA、Money Flow Ratio、Ease of Movement、Standardized Volume、Volume Profile）
+- **TestMomentumIndicators**: 测试动量指标（Mass Index、Ultimate Oscillator、Decycler）
+- **TestPatternIndicators**: 测试形态指标（ZigZag）
+- **TestRegressionIndicators**: 测试回归指标（Linear Regression Slope/Intercept）
+- **TestCompositeIndicators**: 测试组合指标（Squeeze Momentum）
+- **TestEdgeCases**: 测试边界情况处理
+
+### tests/test_indicators.py
 测试所有技术指标计算函数的正确性：
 - **TestSMA**: 测试简单移动平均线
 - **TestEMA**: 测试指数移动平均线

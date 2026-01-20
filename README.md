@@ -10,7 +10,7 @@
 - **历史回测**: 完整的回测引擎，支持滑点、手续费、多种止损机制
 - **参数优化**: 网格搜索、贝叶斯优化、Walk-Forward分析
 - **风险管理**: 多重止损策略（硬止损、ATR止损、保本止盈）
-- **技术指标**: 30+种技术指标（趋势、动量、成交量、震荡等）
+- **技术指标**: 60+种技术指标（趋势、动量、成交量、震荡、高级均线、形态识别等）
 - **报告生成**: 自动生成详细的Markdown格式报告
 - **日志系统**: 完整的日志记录和追踪功能
 - **图表可视化**: 丰富的图表绘制功能（K线图、指标图、回测图、参数分析图）
@@ -874,7 +874,21 @@ print(opt_report)
 
 ## 版本历史
 
-### v2.9.0 (最新)
+### v3.0.0 (最新)
+- 添加30+种新技术指标，总计60+种指标
+- 新增高级移动平均线：WMA、DEMA、TEMA、Hull MA
+- 新增趋势指标：SuperTrend、Ichimoku Kinko Hyo、Donchian Channels、Pivot Points、Aroon、Decycler
+- 新增包络线指标：Acceleration Bands、Envelope SMA
+- 新增背离指标：RSI Divergence
+- 新增成交量指标：Volume Weighted MA、Money Flow Ratio、Ease of Movement、Standardized Volume、Volume Profile
+- 新增动量指标：Mass Index、Ultimate Oscillator
+- 新增形态指标：ZigZag（摆动点检测）
+- 新增回归指标：Linear Regression Slope/Intercept
+- 新增组合指标：Squeeze Momentum
+- 集成scipy科学计算库
+- 添加扩展技术指标的完整测试用例（7个测试类，27个测试）
+
+### v2.9.0
 - 优化回测性能 - 实现向量化计算引擎（VectorizedBacktestEngine）
 - 向量化指标计算（VectorizedMetrics）- 使用NumPy/pandas加速
 - 向量化持仓检查（VectorizedPositionChecker）- 批量处理止损止盈
