@@ -13,6 +13,7 @@
 - **技术指标**: 30+种技术指标（趋势、动量、成交量、震荡等）
 - **报告生成**: 自动生成详细的Markdown格式报告
 - **日志系统**: 完整的日志记录和追踪功能
+- **单元测试**: 完整的测试框架和测试用例
 - **模块化设计**: 清晰的目录结构，便于维护和扩展
 
 ## 安装
@@ -46,6 +47,23 @@ python runners/optimizer_runner.py
 ```bash
 python strategy/stock_query.py 000001.SZ
 ```
+
+### 5. 运行测试
+
+```bash
+# 运行所有测试
+python run_tests.py
+
+# 运行特定类型测试
+python run_tests.py --type indicators
+python run_tests.py --type config
+python run_tests.py --type logger
+
+# 运行测试并生成覆盖率报告
+python run_tests.py --coverage
+```
+
+详细测试说明请参考 [TESTING.md](TESTING.md)
 
 ## 配置参数
 
@@ -89,6 +107,12 @@ Stock/
 │   └── utils.py            # 工具函数（限流器、进度追踪）
 
 ├── logs/                   # 日志文件目录（自动生成）
+│
+├── tests/                  # 测试模块
+│   ├── __init__.py
+│   ├── test_indicators.py  # 技术指标测试
+│   ├── test_config.py     # 配置测试
+│   └── test_logger.py     # 日志系统测试
 │
 ├── indicators/             # 技术指标模块
 │   ├── __init__.py
@@ -473,7 +497,16 @@ print(opt_report)
 
 ## 版本历史
 
-### v2.3.0 (最新)
+### v2.4.0 (最新)
+- 新增完整的单元测试框架（pytest）
+- 添加技术指标测试用例（11个指标测试类）
+- 添加配置参数测试用例
+- 添加日志系统测试用例
+- 创建便捷测试运行脚本（run_tests.py）
+- 添加测试文档（TESTING.md）
+- 配置pytest和覆盖率工具
+
+### v2.3.0
 - 新增完整的日志系统（支持多级别、文件输出、日志轮转）
 - 增强DataFetcher模块的日志记录
 - 更新所有runner脚本以使用日志系统
