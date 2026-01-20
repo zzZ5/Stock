@@ -10,6 +10,7 @@ import time
 
 from .cache_manager import CacheManager
 from .utils import RateLimiter
+from .logger import get_datafetcher_logger
 from config.settings import (
     STOCK_BASIC_TTL_DAYS,
     TRADE_CAL_TTL_DAYS,
@@ -28,10 +29,12 @@ class DataFetcher:
             token: Tushare API token
             rate_limiter: 限流器实例
         """
+        self.logger = get_datafetcher_logger()
         ts.set_token(token)
         self.pro = ts.pro_api()
         self.cache = CacheManager()
         self.rate_limiter = rate_limiter or RateLimiter(200)
+        self.logger.info("DataFetcher初始化完成")
 
     def get_trade_cal(self, end_date: str, lookback_calendar_days: int = 500) -> list[str]:
         """
@@ -44,10 +47,13 @@ class DataFetcher:
         返回:
             按日期升序的交易日列表（YYYYMMDD字符串）
         """
+        self.logger.debug(f"获取交易日历: end_date={end_date}, lookback={lookback_calendar_days}")
+
         path = self.cache.cache_path_trade_cal()
 
         if self.cache.is_cache_expired(path, TRADE_CAL_TTL_DAYS):
             # 缓存过期，重新获取
+            self.logger.info("交易日历缓存过期，重新获取...")
             start = (datetime.strptime(end_date, "%Y%m%d") -
                     relativedelta(days=lookback_calendar_days)).strftime("%Y%m%d")
             cal = self._safe_api_call(
@@ -58,14 +64,22 @@ class DataFetcher:
             )
             if cal is not None:
                 self.cache.save_csv(cal, path)
+                self.logger.info(f"交易日历已保存，共{len(cal)}条记录")
+            else:
+                self.logger.warning("交易日历获取失败")
+        else:
+            self.logger.debug("使用缓存的交易日历")
 
         # 读取缓存
         cal = self.cache.read_csv_if_exists(path)
         if cal is None or cal.empty:
+            self.logger.error("交易日历为空")
             return []
 
         cal = cal[cal["is_open"] == 1].sort_values("cal_date")
-        return cal["cal_date"].astype(str).tolist()
+        result = cal["cal_date"].astype(str).tolist()
+        self.logger.debug(f"交易日历获取成功，共{len(result)}个交易日")
+        return result
 
     def get_stock_basic(self) -> pd.DataFrame:
         """
@@ -74,10 +88,13 @@ class DataFetcher:
         返回:
             包含 ts_code, name, industry, list_date 等字段的DataFrame
         """
+        self.logger.debug("获取股票基础信息")
+
         path = self.cache.cache_path_stock_basic()
 
         if self.cache.is_cache_expired(path, STOCK_BASIC_TTL_DAYS):
             # 缓存过期，重新获取
+            self.logger.info("股票基础信息缓存过期，重新获取...")
             basic = self._safe_api_call(
                 self.pro.stock_basic,
                 exchange="",
@@ -86,10 +103,18 @@ class DataFetcher:
             )
             if basic is not None and not basic.empty:
                 self.cache.save_csv(basic, path)
+                self.logger.info(f"股票基础信息已保存，共{len(basic)}只股票")
+            else:
+                self.logger.warning("股票基础信息获取失败")
+        else:
+            self.logger.debug("使用缓存的股票基础信息")
 
         result = self.cache.read_csv_if_exists(path)
         if result is None or result.empty:
+            self.logger.error("股票基础信息为空")
             return pd.DataFrame()
+
+        self.logger.debug(f"股票基础信息获取成功，共{len(result)}只股票")
         return result
 
     def get_daily_by_date(self, trade_date: str) -> pd.DataFrame:
@@ -102,14 +127,18 @@ class DataFetcher:
         返回:
             包含 ts_code, trade_date, open, high, low, close, amount 等字段的DataFrame
         """
+        self.logger.debug(f"获取{trade_date}的日线数据")
+
         path = self.cache.cache_path_daily(trade_date)
 
         if not self.cache.is_cache_expired(path, 365):  # 日线数据缓存1年
             df = self.cache.read_csv_if_exists(path)
             if df is not None and not df.empty:
+                self.logger.debug(f"使用缓存的{trade_date}日线数据，共{len(df)}条")
                 return df
 
         # 缓存不存在或过期，获取数据
+        self.logger.info(f"从API获取{trade_date}日线数据...")
         df = self._safe_api_call(
             self.pro.daily,
             trade_date=trade_date
@@ -117,6 +146,9 @@ class DataFetcher:
 
         if df is not None and not df.empty:
             self.cache.save_csv(df, path)
+            self.logger.info(f"{trade_date}日线数据已保存，共{len(df)}条")
+        else:
+            self.logger.warning(f"{trade_date}日线数据获取失败")
 
         return df if df is not None else pd.DataFrame()
 
@@ -132,6 +164,7 @@ class DataFetcher:
         返回:
             指数日线数据DataFrame
         """
+        self.logger.debug(f"获取指数日线数据: {ts_code}, {start_date}~{end_date}")
         df = self._safe_api_call(
             self.pro.index_daily,
             ts_code=ts_code,

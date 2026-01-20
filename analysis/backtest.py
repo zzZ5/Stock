@@ -15,7 +15,7 @@ from config.settings import (
     VOL_LOOKBACK, VOL_CONFIRM_MULT, RSI_MAX, MAX_LOSS_PCT,
     ATR_N, ATR_MULT, TOP_N
 )
-from indicators.indicators import sma
+from indicators.indicators import sma, atr
 from strategy.strategy import StockStrategy
 
 
@@ -156,6 +156,8 @@ class BacktestEngine:
                 continue
 
             current_price = float(current_data.iloc[0]['close'])
+            high_price = float(current_data.iloc[0]['high'])
+            low_price = float(current_data.iloc[0]['low'])
 
             # 计算收益率
             pnl_pct = (current_price - position['entry_price']) / position['entry_price']
@@ -166,15 +168,25 @@ class BacktestEngine:
             # 判断是否触发平仓条件
             exit_reason = None
 
-            # 硬止损
+            # 1. 硬止损（固定百分比）
             if pnl_pct <= self.config.stop_loss:
                 exit_reason = 'stop_loss'
-            # 止盈
+            # 2. ATR止损（追踪止损）
+            elif 'atr_stop_price' in position and low_price <= position['atr_stop_price']:
+                exit_reason = 'atr_stop'
+            # 3. 移动止盈（保本止盈）
+            elif 'breakeven_price' in position and low_price <= position['breakeven_price'] and pnl_pct > 0.1:
+                exit_reason = 'breakeven'
+            # 4. 固定止盈
             elif pnl_pct >= self.config.take_profit:
                 exit_reason = 'take_profit'
-            # 最大持仓天数
+            # 5. 最大持仓天数
             elif holding_days >= self.config.max_holding_days:
                 exit_reason = 'max_hold'
+
+            # 更新追踪止损价格（当盈利达到一定比例时，移动止损到成本价）
+            if pnl_pct > 0.1 and 'breakeven_price' not in position:
+                position['breakeven_price'] = position['entry_price']
 
             if exit_reason:
                 self._close_position(ts_code, current_price, trade_date, exit_reason, capital)
@@ -250,15 +262,21 @@ class BacktestEngine:
 
                 capital -= total_cost
 
+                # 计算ATR止损价格
+                atr_value = stock.get('atr', 0) if 'atr' in stock else 0
+                atr_stop_price = entry_price - atr_value * ATR_MULT if atr_value > 0 else 0
+
                 self.positions[stock['ts_code']] = {
                     'entry_price': entry_price,
                     'entry_date': trade_date,
                     'shares': shares,
-                    'name': stock.get('name', '')
+                    'name': stock.get('name', ''),
+                    'atr_stop_price': atr_stop_price
                 }
 
                 print(f"  -> 开仓: {stock['ts_code']} {stock.get('name', '')} "
-                      f"@ {entry_price:.2f} x {shares}股")
+                      f"@ {entry_price:.2f} x {shares}股 "
+                      f"(ATR止损: {atr_stop_price:.2f})")
 
                 opened_count += 1
 

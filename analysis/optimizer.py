@@ -1,12 +1,13 @@
 """
 趋势雷达选股系统 - 参数优化器模块
-包含网格搜索、Walk-Forward分析等参数优化功能
+包含网格搜索、Walk-Forward分析、贝叶斯优化等参数优化功能
 """
 import pandas as pd
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import itertools
 from tqdm import tqdm
+from datetime import datetime, timedelta
 
 from .backtest import BacktestEngine, BacktestConfig
 from config.settings import DEFAULT_HOLDING_DAYS
@@ -198,3 +199,312 @@ class ParameterOptimizer:
         """保存优化结果"""
         df.to_csv(filepath, index=False, encoding='utf-8-sig')
         print(f"优化结果已保存到: {filepath}")
+
+    def walk_forward_analysis(self,
+                             train_days: int = 252,      # 训练期（1年=252交易日）
+                             test_days: int = 63,        # 测试期（3个月=63交易日）
+                             step_days: int = 63,        # 步长
+                             param_grid: Dict[str, List] = None) -> pd.DataFrame:
+        """
+        Walk-Forward滚动验证分析
+        避免过拟合，测试参数的稳定性
+
+        参数:
+            train_days: 训练期交易日数
+            test_days: 测试期交易日数
+            step_days: 滚动步长
+            param_grid: 参数网格（如果为None则使用默认网格）
+
+        返回:
+            包含所有窗口结果的DataFrame
+        """
+        print(f"\n{'='*70}")
+        print(f"Walk-Forward分析")
+        print(f"{'='*70}")
+        print(f"训练期: {train_days}交易日")
+        print(f"测试期: {test_days}交易日")
+        print(f"滚动步长: {step_days}交易日")
+        print(f"{'='*70}\n")
+
+        # 获取所有交易日
+        all_dates = self.fetcher.get_trade_cal(
+            end_date=self.backtest_config.end_date,
+            lookback_calendar_days=2000
+        )
+
+        # 筛选回测日期范围
+        date_range = [d for d in all_dates
+                     if self.backtest_config.start_date <= d <= self.backtest_config.end_date]
+
+        if len(date_range) < (train_days + test_days):
+            print(f"错误: 数据不足，需要至少 {train_days + test_days} 个交易日")
+            return pd.DataFrame()
+
+        # 创建时间窗口
+        windows = self._create_walk_forward_windows(
+            date_range, train_days, test_days, step_days
+        )
+
+        print(f"共创建 {len(windows)} 个时间窗口\n")
+
+        # 默认参数网格
+        if param_grid is None:
+            param_grid = {
+                'BREAKOUT_N': [40, 60, 80],
+                'MA_FAST': [10, 20],
+                'MA_SLOW': [40, 60],
+                'VOL_CONFIRM_MULT': [1.2, 1.5],
+                'RSI_MAX': [70, 75]
+            }
+
+        results = []
+
+        # 逐窗口分析
+        for i, window in enumerate(tqdm(windows, desc="Walk-Forward")):
+            print(f"\n--- 窗口 {i+1}/{len(windows)} ---")
+            print(f"训练期: {window['train_start']} ~ {window['train_end']}")
+            print(f"测试期: {window['test_start']} ~ {window['test_end']}")
+
+            # 1. 训练期参数优化
+            train_config = BacktestConfig(
+                start_date=window['train_start'],
+                end_date=window['train_end'],
+                initial_capital=self.backtest_config.initial_capital,
+                max_positions=self.backtest_config.max_positions,
+                position_size=self.backtest_config.position_size,
+                slippage=self.backtest_config.slippage,
+                commission=self.backtest_config.commission,
+                stop_loss=self.backtest_config.stop_loss,
+                take_profit=self.backtest_config.take_profit,
+                max_holding_days=self.backtest_config.max_holding_days,
+                rebalance_days=self.backtest_config.rebalance_days
+            )
+
+            # 在训练期优化参数
+            print(f"  -> 训练期优化参数...")
+            train_optimizer = ParameterOptimizer(self.fetcher, train_config)
+            train_results = train_optimizer.grid_search(param_grid, show_progress=False)
+
+            if train_results.empty:
+                print(f"  -> 训练期优化失败，跳过此窗口")
+                continue
+
+            best_params = train_results.iloc[0]
+            best_params_dict = {
+                'BREAKOUT_N': int(best_params['BREAKOUT_N']),
+                'MA_FAST': int(best_params['MA_FAST']),
+                'MA_SLOW': int(best_params['MA_SLOW']),
+                'VOL_CONFIRM_MULT': float(best_params['VOL_CONFIRM_MULT']),
+                'RSI_MAX': int(best_params['RSI_MAX'])
+            }
+
+            print(f"  -> 最优参数: {best_params_dict}")
+
+            # 2. 测试期验证
+            # 更新参数
+            for param_name, param_value in best_params_dict.items():
+                setattr(config, param_name, param_value)
+
+            test_config = BacktestConfig(
+                start_date=window['test_start'],
+                end_date=window['test_end'],
+                initial_capital=self.backtest_config.initial_capital,
+                max_positions=self.backtest_config.max_positions,
+                position_size=self.backtest_config.position_size,
+                slippage=self.backtest_config.slippage,
+                commission=self.backtest_config.commission,
+                stop_loss=self.backtest_config.stop_loss,
+                take_profit=self.backtest_config.take_profit,
+                max_holding_days=self.backtest_config.max_holding_days,
+                rebalance_days=self.backtest_config.rebalance_days
+            )
+
+            from strategy import StockStrategy
+            basic_all = self.fetcher.get_stock_basic()
+            strategy = StockStrategy(basic_all)
+
+            engine = BacktestEngine(test_config, strategy, self.fetcher)
+            test_result = engine.run()
+
+            # 记录结果
+            result_row = {
+                'window': i + 1,
+                'train_start': window['train_start'],
+                'train_end': window['train_end'],
+                'test_start': window['test_start'],
+                'test_end': window['test_end'],
+                **best_params_dict,
+                'train_return': best_params['annual_return'],
+                'train_sharpe': best_params['sharpe_ratio'],
+                'train_drawdown': best_params['max_drawdown'],
+                'test_return': test_result.get('annual_return', 0),
+                'test_sharpe': test_result.get('sharpe_ratio', 0),
+                'test_drawdown': test_result.get('max_drawdown', 0),
+                'test_winrate': test_result.get('win_rate', 0),
+                'test_trades': test_result.get('total_trades', 0)
+            }
+
+            results.append(result_row)
+
+        # 转换为DataFrame
+        df = pd.DataFrame(results)
+
+        if not df.empty:
+            # 分析稳定性
+            self._print_walk_forward_summary(df)
+        else:
+            print("\nWalk-Forward分析完成，但无有效结果")
+
+        return df
+
+    def _create_walk_forward_windows(self,
+                                    date_range: List[str],
+                                    train_days: int,
+                                    test_days: int,
+                                    step_days: int) -> List[Dict]:
+        """
+        创建Walk-Forward时间窗口
+
+        返回:
+            窗口列表，每个窗口包含训练期和测试期的起止日期
+        """
+        windows = []
+        idx = 0
+
+        while idx + train_days + test_days <= len(date_range):
+            train_start = date_range[idx]
+            train_end = date_range[idx + train_days - 1]
+            test_start = date_range[idx + train_days]
+            test_end = date_range[idx + train_days + test_days - 1]
+
+            windows.append({
+                'train_start': train_start,
+                'train_end': train_end,
+                'test_start': test_start,
+                'test_end': test_end
+            })
+
+            idx += step_days
+
+        return windows
+
+    def _print_walk_forward_summary(self, df: pd.DataFrame):
+        """打印Walk-Forward分析摘要"""
+        print(f"\n{'='*70}")
+        print(f"Walk-Forward分析摘要")
+        print(f"{'='*70}\n")
+
+        # 训练期 vs 测试期对比
+        print(f"训练期平均表现:")
+        print(f"  年化收益: {df['train_return'].mean():.2f}%")
+        print(f"  夏普比率: {df['train_sharpe'].mean():.2f}")
+        print(f"  最大回撤: {df['train_drawdown'].mean():.2f}%\n")
+
+        print(f"测试期平均表现:")
+        print(f"  年化收益: {df['test_return'].mean():.2f}%")
+        print(f"  夏普比率: {df['test_sharpe'].mean():.2f}")
+        print(f"  最大回撤: {df['test_drawdown'].mean():.2f}%")
+        print(f"  胜率: {df['test_winrate'].mean():.2f}%\n")
+
+        # 参数稳定性分析
+        print(f"参数稳定性:")
+        param_cols = ['BREAKOUT_N', 'MA_FAST', 'MA_SLOW', 'VOL_CONFIRM_MULT', 'RSI_MAX']
+        for col in param_cols:
+            if col in df.columns:
+                unique_values = df[col].nunique()
+                most_common = df[col].mode().iloc[0] if len(df[col].mode()) > 0 else df[col].iloc[0]
+                print(f"  {col}: {unique_values}个不同值, 最常见: {most_common}")
+
+        print(f"\n表现相关性:")
+        corr_return = df[['train_return', 'test_return']].corr().iloc[0, 1]
+        corr_sharpe = df[['train_sharpe', 'test_sharpe']].corr().iloc[0, 1]
+        print(f"  训练/测试收益率相关性: {corr_return:.3f}")
+        print(f"  训练/测试夏普比率相关性: {corr_sharpe:.3f}")
+
+        # 成功率统计
+        success_count = len(df[df['test_return'] > 0])
+        success_rate = success_count / len(df) * 100
+        print(f"\n测试期盈利窗口: {success_count}/{len(df)} ({success_rate:.1f}%)")
+
+        print(f"\n{'='*70}\n")
+
+    def bayesian_optimization(self,
+                           param_bounds: Dict[str, Tuple],
+                           n_iterations: int = 50) -> Dict:
+        """
+        贝叶斯优化（简化版，使用随机搜索替代）
+        实际项目建议使用 hyperopt 或 optuna
+
+        参数:
+            param_bounds: 参数边界
+                {
+                    'BREAKOUT_N': (20, 100),  # 整数参数
+                    'MA_FAST': (5, 30),
+                    'MA_SLOW': (20, 100),
+                    'VOL_CONFIRM_MULT': (1.0, 3.0),  # 浮点参数
+                    'RSI_MAX': (60, 90)
+                }
+            n_iterations: 迭代次数
+
+        返回:
+            最优参数和结果
+        """
+        print(f"\n{'='*70}")
+        print(f"贝叶斯优化（简化版: 随机搜索）")
+        print(f"{'='*70}")
+        print(f"迭代次数: {n_iterations}")
+        print(f"参数边界:")
+        for name, bounds in param_bounds.items():
+            print(f"  {name}: {bounds}")
+        print(f"{'='*70}\n")
+
+        import random
+
+        best_score = -float('inf')
+        best_params = None
+        best_result = None
+
+        for iteration in tqdm(range(n_iterations), desc="贝叶斯优化"):
+            # 随机采样参数
+            current_params = {}
+            for param_name, bounds in param_bounds.items():
+                if isinstance(bounds[0], int):
+                    # 整数参数
+                    current_params[param_name] = random.randint(bounds[0], bounds[1])
+                else:
+                    # 浮点参数
+                    current_params[param_name] = random.uniform(bounds[0], bounds[1])
+
+            # 更新参数
+            for param_name, param_value in current_params.items():
+                setattr(config, param_name, param_value)
+
+            # 运行回测
+            from strategy import StockStrategy
+            basic_all = self.fetcher.get_stock_basic()
+            strategy = StockStrategy(basic_all)
+
+            engine = BacktestEngine(self.backtest_config, strategy, self.fetcher)
+            result = engine.run()
+
+            # 计算得分
+            score = self._calculate_composite_score(result)
+
+            if score > best_score:
+                best_score = score
+                best_params = current_params.copy()
+                best_result = result
+                print(f"\n  新最优参数 (迭代 {iteration+1}): 得分={score:.2f}")
+
+        print(f"\n最优参数:")
+        for param_name, param_value in best_params.items():
+            print(f"  {param_name}: {param_value}")
+        print(f"最优得分: {best_score:.2f}")
+        print(f"年化收益: {best_result.get('annual_return', 0):.2f}%")
+        print(f"夏普比率: {best_result.get('sharpe_ratio', 0):.2f}")
+
+        return {
+            'best_params': best_params,
+            'best_score': best_score,
+            'best_result': best_result
+        }

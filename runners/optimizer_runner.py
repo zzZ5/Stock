@@ -9,12 +9,24 @@ import pandas as pd
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config.settings import DEFAULT_HOLDING_DAYS
+from config.settings import DEFAULT_HOLDING_DAYS, LOG_LEVEL, LOG_DIR, LOG_CONSOLE_OUTPUT, LOG_FILE_OUTPUT, LOG_MAX_FILE_SIZE, LOG_BACKUP_COUNT
+from core.logger import Logger, get_logger
 from core.data_fetcher import DataFetcher
 from core.utils import RateLimiter
 from analysis.backtest import BacktestConfig
 from analysis.optimizer import ParameterOptimizer
 import config.settings as config
+
+# 初始化日志系统
+Logger.setup_logging(
+    log_level=LOG_LEVEL,
+    log_dir=LOG_DIR,
+    console_output=LOG_CONSOLE_OUTPUT,
+    file_output=LOG_FILE_OUTPUT,
+    max_file_size=LOG_MAX_FILE_SIZE,
+    backup_count=LOG_BACKUP_COUNT
+)
+logger = get_logger(__name__)
 
 
 def grid_search_example():
@@ -95,19 +107,102 @@ def grid_search_example():
         return best_params
 
 
+def walk_forward_example():
+    """Walk-Forward分析示例"""
+    print("="*70)
+    print("参数优化 - Walk-Forward分析")
+    print("="*70)
+
+    # 初始化
+    token = os.getenv("TUSHARE_TOKEN", "706b1dbca05800fea1d77c3a727f6ad5e0b3a1d0687f8a4e3266fe9c")
+    rate_limiter = RateLimiter(max_calls_per_minute=200)
+    fetcher = DataFetcher(token, rate_limiter)
+
+    # 回测配置（需要至少1年数据）
+    backtest_config = BacktestConfig(
+        start_date="20230101",
+        end_date="20241231",
+        initial_capital=1000000.0,
+        max_positions=5,
+        position_size=0.15,
+        slippage=0.001,
+        commission=0.0003,
+        stop_loss=-0.10,
+        take_profit=0.25,
+        max_holding_days=20,
+        rebalance_days=5
+    )
+
+    # 参数网格（为了加快速度，使用较小网格）
+    param_grid = {
+        'BREAKOUT_N': [50, 60, 70],
+        'MA_FAST': [15, 20],
+        'MA_SLOW': [50, 60],
+        'VOL_CONFIRM_MULT': [1.2, 1.5],
+        'RSI_MAX': [70, 75]
+    }
+
+    print(f"\n参数网格:")
+    for name, values in param_grid.items():
+        print(f"  {name}: {values}")
+
+    # Walk-Forward配置
+    train_days = 252   # 训练期：1年
+    test_days = 63     # 测试期：3个月
+    step_days = 63      # 步长：3个月
+
+    print(f"\nWalk-Forward配置:")
+    print(f"  训练期: {train_days}交易日 (约1年)")
+    print(f"  测试期: {test_days}交易日 (约3个月)")
+    print(f"  滚动步长: {step_days}交易日")
+
+    # 运行Walk-Forward分析
+    optimizer = ParameterOptimizer(fetcher, backtest_config)
+    wf_df = optimizer.walk_forward_analysis(
+        train_days=train_days,
+        test_days=test_days,
+        step_days=step_days,
+        param_grid=param_grid
+    )
+
+    # 保存结果
+    if not wf_df.empty:
+        output_dir = "./optimization_results"
+        os.makedirs(output_dir, exist_ok=True)
+
+        output_file = f"{output_dir}/walk_forward_{backtest_config.start_date}_{backtest_config.end_date}.csv"
+        optimizer.save_results(wf_df, output_file)
+
+        # 打印最终建议参数
+        print(f"\n{'='*70}")
+        print(f"最终建议参数 (基于稳定性分析):")
+        print(f"{'='*70}")
+        for col in ['BREAKOUT_N', 'MA_FAST', 'MA_SLOW', 'VOL_CONFIRM_MULT', 'RSI_MAX']:
+            if col in wf_df.columns:
+                most_common = wf_df[col].mode().iloc[0] if len(wf_df[col].mode()) > 0 else wf_df[col].iloc[0]
+                print(f"  {col}: {most_common}")
+        print(f"{'='*70}\n")
+
+        return wf_df
+
+
 def main():
     """主函数"""
     print("\n请选择优化方式:")
     print("1. 网格搜索 (Grid Search)")
     print("2. Walk-Forward分析")
+    print("3. 贝叶斯优化 (随机搜索)")
     print("0. 退出")
 
-    choice = input("\n请输入选项 (0/1/2): ").strip()
+    choice = input("\n请输入选项 (0/1/2/3): ").strip()
 
     if choice == "1":
         grid_search_example()
     elif choice == "2":
-        print("Walk-Forward分析功能开发中...")
+        walk_forward_example()
+    elif choice == "3":
+        print("贝叶斯优化功能开发中...")
+        # TODO: 实现 bayesian_optimization_example()
     elif choice == "0":
         print("退出")
         return

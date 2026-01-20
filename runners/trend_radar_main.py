@@ -12,13 +12,27 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.settings import (
     INDEX_CODE, SAVE_REPORT, REPORT_DIR,
-    DEFAULT_HOLDING_DAYS, TOP_N
+    DEFAULT_HOLDING_DAYS, TOP_N,
+    LOG_LEVEL, LOG_DIR, LOG_CONSOLE_OUTPUT,
+    LOG_FILE_OUTPUT, LOG_MAX_FILE_SIZE, LOG_BACKUP_COUNT
 )
+from core.logger import Logger, get_logger
 from core.utils import ProgressTracker, RateLimiter
 from core.data_fetcher import DataFetcher
 from strategy.strategy import StockStrategy
 from analysis.reporter import Reporter
 from indicators.indicators import sma
+
+# 初始化日志系统
+Logger.setup_logging(
+    log_level=LOG_LEVEL,
+    log_dir=LOG_DIR,
+    console_output=LOG_CONSOLE_OUTPUT,
+    file_output=LOG_FILE_OUTPUT,
+    max_file_size=LOG_MAX_FILE_SIZE,
+    backup_count=LOG_BACKUP_COUNT
+)
+logger = get_logger(__name__)
 
 
 def simple_backtest(top_df: pd.DataFrame, hist: pd.DataFrame,

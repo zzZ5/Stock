@@ -52,3 +52,13 @@ DEFAULT_HOLDING_DAYS = 10       # 默认持仓天数（用于回测）
 # 指数参数
 # =========================
 INDEX_CODE = "000300.SH"        # 沪深300指数代码
+
+# =========================
+# 日志配置
+# =========================
+LOG_LEVEL = "INFO"              # 日志级别 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+LOG_DIR = "./logs"              # 日志文件目录
+LOG_CONSOLE_OUTPUT = True       # 是否输出到控制台
+LOG_FILE_OUTPUT = True          # 是否输出到文件
+LOG_MAX_FILE_SIZE = 10 * 1024 * 1024  # 单个日志文件最大大小（字节），默认10MB
+LOG_BACKUP_COUNT = 5            # 保留的日志文件备份数量

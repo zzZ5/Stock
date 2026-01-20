@@ -384,3 +384,280 @@ def roc(close: pd.Series, n: int = 12) -> pd.Series:
     """
     roc_val = (close - close.shift(n)) / close.shift(n) * 100
     return roc_val
+
+
+def dpo(close: pd.Series, n: int = 20) -> pd.Series:
+    """
+    去趋势价格振荡 Detrended Price Oscillator
+
+    用途: 消除趋势影响，识别周期性波动
+         DPO > 0: 价格高于平均水平
+         DPO < 0: 价格低于平均水平
+
+    参数:
+        close: 收盘价序列
+        n: 周期长度
+
+    返回:
+        DPO值序列
+    """
+    sma_n = close.rolling(n).mean()
+    dpo_value = close.shift(n//2 + 1) - sma_n
+    return dpo_value
+
+
+def trix(close: pd.Series, n: int = 15, signal: int = 9) -> dict:
+    """
+    TRIX指标（三重指数平滑平均线）
+
+    用途: 过滤短期波动，识别趋势转折
+         TRIX上穿信号线: 买入信号
+         TRIX下穿信号线: 卖出信号
+
+    参数:
+        close: 收盘价序列
+        n: TRIX周期
+        signal: 信号线周期
+
+    返回:
+        {'trix': Series, 'signal': Series, 'hist': Series}
+    """
+    ema1 = close.ewm(span=n, adjust=False).mean()
+    ema2 = ema1.ewm(span=n, adjust=False).mean()
+    ema3 = ema2.ewm(span=n, adjust=False).mean()
+
+    trix_value = 100 * (ema3.diff(1) / ema3.shift(1))
+    signal_line = trix_value.ewm(span=signal, adjust=False).mean()
+
+    return {
+        'trix': trix_value,
+        'signal': signal_line,
+        'hist': trix_value - signal_line
+    }
+
+
+def parabolic_sar(high: pd.Series, low: pd.Series,
+                 af: float = 0.02, max_af: float = 0.2) -> pd.Series:
+    """
+    抛物线转向指标 Parabolic SAR
+
+    用途: 趋势跟踪止损，设置动态止损位
+         价格 > SAR: 多头趋势
+         价格 < SAR: 空头趋势
+
+    参数:
+        high: 最高价序列
+        low: 最低价序列
+        af: 加速因子初始值
+        max_af: 加速因子最大值
+
+    返回:
+        SAR值序列
+    """
+    sar = np.zeros(len(high))
+    trend = 1  # 1为多头，-1为空头
+    ep = high[0]  # 极值点
+    af_val = af   # 加速因子
+
+    sar[0] = low[0]
+
+    for i in range(1, len(high)):
+        if trend == 1:  # 多头
+            sar[i] = sar[i-1] + af_val * (ep - sar[i-1])
+
+            if low[i] < sar[i]:
+                trend = -1
+                sar[i] = ep
+                ep = low[i]
+                af_val = af
+            else:
+                if high[i] > ep:
+                    ep = high[i]
+                    af_val = min(af_val + af, max_af)
+        else:  # 空头
+            sar[i] = sar[i-1] + af_val * (ep - sar[i-1])
+
+            if high[i] > sar[i]:
+                trend = 1
+                sar[i] = ep
+                ep = high[i]
+                af_val = af
+            else:
+                if low[i] < ep:
+                    ep = low[i]
+                    af_val = min(af_val + af, max_af)
+
+    return pd.Series(sar, index=high.index)
+
+
+def vwap(df: pd.DataFrame) -> pd.Series:
+    """
+    成交量加权平均价 Volume Weighted Average Price
+
+    用途: 判断当日平均成本，识别偏离程度
+         价格 > VWAP: 买方强势
+         价格 < VWAP: 卖方强势
+
+    参数:
+        df: 包含high, low, close, volume的DataFrame
+
+    返回:
+        VWAP值序列
+    """
+    typical_price = (df['high'] + df['low'] + df['close']) / 3
+    vwap_value = (typical_price * df['volume']).cumsum() / df['volume'].cumsum()
+    return vwap_value
+
+
+def cci(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 20) -> pd.Series:
+    """
+    顺势指标 Commodity Channel Index
+
+    用途: 识别超买超卖
+         CCI > 100: 超买
+         CCI < -100: 超卖
+
+    参数:
+        high: 最高价序列
+        low: 最低价序列
+        close: 收盘价序列
+        n: 周期
+
+    返回:
+        CCI值序列
+    """
+    typical_price = (high + low + close) / 3
+    sma_tp = typical_price.rolling(n).mean()
+    mad = typical_price.rolling(n).apply(lambda x: np.abs(x - x.mean()).mean(), raw=True)
+
+    cci_value = (typical_price - sma_tp) / (0.015 * mad)
+    return cci_value
+
+
+def stoch_rsi(close: pd.Series, n: int = 14, d: int = 3, k: int = 3) -> dict:
+    """
+    随机RSI指标 Stochastic RSI
+
+    用途: 识别超买超卖
+         StochRSI > 0.8: 超买
+         StochRSI < 0.2: 超卖
+
+    参数:
+        close: 收盘价序列
+        n: RSI周期
+        d: %D平滑周期
+        k: %K平滑周期
+
+    返回:
+        {'stoch_rsi': Series, 'k': Series, 'd': Series}
+    """
+    # 计算RSI
+    rsi_val = rsi(close, n)
+
+    # Stochastic RSI
+    stoch_rsi = (rsi_val - rsi_val.rolling(n).min()) / \
+                (rsi_val.rolling(n).max() - rsi_val.rolling(n).min())
+
+    # %K和%D
+    k_line = stoch_rsi.rolling(k).mean()
+    d_line = k_line.rolling(d).mean()
+
+    return {
+        'stoch_rsi': stoch_rsi,
+        'k': k_line,
+        'd': d_line
+    }
+
+
+def vpt(df: pd.DataFrame, n: int = 14) -> pd.Series:
+    """
+    量价趋势指标 Volume Price Trend
+
+    用途: 衡量买卖压力
+         VPT上升: 买方压力
+         VPT下降: 卖方压力
+
+    参数:
+        df: 包含close和volume的DataFrame
+        n: 平滑周期
+
+    返回:
+        VPT值序列
+    """
+    pct_change = df['close'].pct_change()
+    vpt_raw = (pct_change * df['volume']).cumsum()
+    vpt_value = vpt_raw.rolling(n).mean()
+    return vpt_value
+
+
+def vortex(df: pd.DataFrame, n: int = 14) -> dict:
+    """
+    Vortex指标
+
+    用途: 识别趋势方向
+         VI+ > VI-: 上升趋势
+         VI+ < VI-: 下降趋势
+
+    参数:
+        df: 包含high, low, close的DataFrame
+        n: 周期
+
+    返回:
+        {'vi_plus': Series, 'vi_minus': Series}
+    """
+    high = df['high']
+    low = df['low']
+    close = df['close']
+
+    tr = pd.concat([
+        high - low,
+        (high - close.shift(1)).abs(),
+        (low - close.shift(1)).abs()
+    ], axis=1).max(axis=1)
+
+    vm_plus = (high - low.shift(1)).abs()
+    vm_minus = (low - high.shift(1)).abs()
+
+    vi_plus = vm_plus.rolling(n).sum() / tr.rolling(n).sum()
+    vi_minus = vm_minus.rolling(n).sum() / tr.rolling(n).sum()
+
+    return {
+        'vi_plus': vi_plus,
+        'vi_minus': vi_minus
+    }
+
+
+def fisher_transform(df: pd.DataFrame, n: int = 10) -> dict:
+    """
+    Fisher变换指标
+
+    用途: 将价格分布转换为接近正态分布，识别转折点
+         Fisher > 0: 趋势向上
+         Fisher < 0: 趋势向下
+
+    参数:
+        df: 包含high和low的DataFrame
+        n: 周期
+
+    返回:
+        {'fisher': Series, 'signal': Series}
+    """
+    high = df['high']
+    low = df['low']
+
+    mid = (high + low) / 2
+    nd_low = mid.rolling(n).min()
+    nd_high = mid.rolling(n).max()
+
+    # 避免除零
+    nd_high = nd_high.replace(0, np.nan)
+    value = 2 * ((mid - nd_low) / (nd_high - nd_low) - 0.5)
+    value = value.clip(-0.999, 0.999)
+
+    fisher = 0.5 * np.log((1 + value) / (1 - value))
+    signal = fisher.shift(1)
+
+    return {
+        'fisher': fisher,
+        'signal': signal
+    }
