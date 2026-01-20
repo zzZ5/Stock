@@ -300,7 +300,7 @@ class TestOBV:
     
     def test_obv_basic(self, sample_stock_data):
         """测试OBV基本计算"""
-        result = obv(sample_stock_data)
+        result = obv(sample_stock_data['close'], sample_stock_data['volume'])
         
         assert isinstance(result, pd.Series)
         assert len(result) == len(sample_stock_data)

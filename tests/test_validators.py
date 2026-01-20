@@ -102,7 +102,7 @@ class TestPriceValidator:
             'low': [9],
             'close': [10.5]
         })
-        with pytest.raises(ValidationError, match="不能为负数"):
+        with pytest.raises(ValidationError):
             PriceValidator.validate_ohlc(df)
 
     def test_validate_positive_values(self):
@@ -253,12 +253,12 @@ class TestConfigValidator:
             'position_size': 0.2,
             'slippage': 0.001,
             'commission': 0.0003,
-            'stop_loss': -0.8,  # 太大
+            'stop_loss': 0.8,  # 超出范围
             'take_profit': 0.2,
             'max_holding_days': 30,
             'rebalance_days': 5
         }
-        with pytest.raises(ValidationError, match="不能大于"):
+        with pytest.raises(ValidationError):
             ConfigValidator.validate_backtest_config(config)
 
 

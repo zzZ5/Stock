@@ -13,6 +13,7 @@
 - **技术指标**: 30+种技术指标（趋势、动量、成交量、震荡等）
 - **报告生成**: 自动生成详细的Markdown格式报告
 - **日志系统**: 完整的日志记录和追踪功能
+- **图表可视化**: 丰富的图表绘制功能（K线图、指标图、回测图、参数分析图）
 - **单元测试**: 完整的测试框架和测试用例
 - **模块化设计**: 清晰的目录结构，便于维护和扩展
 
@@ -109,11 +110,17 @@ Stock/
 
 ├── logs/                   # 日志文件目录（自动生成）
 │
+├── visualization/          # 可视化模块
+│   ├── __init__.py
+│   └── plotter.py          # 图表绘制（K线图、指标图、回测图、参数分析图）
+│
 ├── tests/                  # 测试模块
 │   ├── __init__.py
 │   ├── test_indicators.py  # 技术指标测试
 │   ├── test_config.py     # 配置测试
-│   └── test_logger.py     # 日志系统测试
+│   ├── test_logger.py     # 日志系统测试
+│   ├── test_validators.py # 数据验证测试
+│   └── test_visualization.py  # 可视化模块测试
 │
 ├── indicators/             # 技术指标模块
 │   ├── __init__.py
@@ -384,6 +391,329 @@ best = optimizer.bayesian_optimization(param_bounds, n_iterations=50)
 - 表现相关性分析
 - 各窗口详细结果
 
+## 可视化系统
+
+系统提供丰富的图表绘制功能，基于matplotlib和seaborn。
+
+### 股票K线图
+
+绘制专业的股票K线图，支持多种技术指标叠加：
+
+```python
+from visualization import plot_stock_candlestick
+from core import DataFetcher
+
+fetcher = DataFetcher(token, rate_limiter)
+df = fetcher.get_daily_by_date('000001.SZ', start_date='20240101', end_date='20240401')
+
+# 基本K线图
+fig = plot_stock_candlestick(df, title="平安银行 - K线图")
+plt.show()
+
+# 带指标的K线图
+fig = plot_stock_candlestick(
+    df,
+    indicators=['ma', 'bollinger', 'volume', 'macd'],
+    title="平安银行 - 完整分析"
+)
+plt.show()
+
+# 保存图表
+plot_stock_candlestick(df, save_path='reports/stock_chart.png')
+```
+
+支持的指标：
+- `ma`: 移动平均线（MA5、MA10、MA20、MA60）
+- `bollinger`: 布林带
+- `volume`: 成交量柱状图
+- `macd`: MACD指标
+
+### 技术指标图
+
+绘制多种技术指标的趋势和超买超卖信号：
+
+```python
+from visualization import plot_stock_indicators
+
+# 基本指标图
+fig = plot_stock_indicators(df, indicators=['rsi', 'kdj', 'cci', 'atr'])
+plt.show()
+
+# 自定义指标组合
+fig = plot_stock_indicators(
+    df,
+    indicators=['rsi', 'atr'],
+    figsize=(14, 6),
+    save_path='reports/indicators.png'
+)
+```
+
+支持的技术指标：
+- `rsi`: 相对强弱指标（带70/30超买超卖线）
+- `kdj`: 随机指标（带80/20超买超卖线）
+- `cci`: 顺势指标（带±100超买超卖线）
+- `atr`: 平均真实波幅
+
+### 回测结果可视化
+
+完整的回测结果分析图表：
+
+```python
+from visualization import plot_backtest_results
+
+fig = plot_backtest_results(
+    results,
+    figsize=(16, 12),
+    save_path='reports/backtest_results.png'
+)
+```
+
+包含的图表：
+1. 净值曲线（策略vs基准）
+2. 回撤曲线
+3. 每月收益率热力图
+4. 交易收益率分布图
+
+### 回撤分析图
+
+详细的净值与回撤分析：
+
+```python
+from visualization import plot_drawdown_chart
+
+fig = plot_drawdown_chart(
+    equity_curve,
+    figsize=(14, 6),
+    save_path='reports/drawdown_chart.png'
+)
+```
+
+### 月度收益分析
+
+月度和年度收益率统计：
+
+```python
+from visualization import plot_monthly_returns
+
+fig = plot_monthly_returns(
+    monthly_returns,
+    figsize=(14, 8),
+    save_path='reports/monthly_returns.png'
+)
+```
+
+包含：
+1. 月度收益率柱状图
+2. 年度收益率柱状图
+3. 统计指标摘要
+
+### 参数优化热力图
+
+可视化二维参数空间的优化结果：
+
+```python
+from visualization import plot_parameter_heatmap
+
+fig = plot_parameter_heatmap(
+    optimization_results,
+    param1='BREAKOUT_N',
+    param2='MA_FAST',
+    metric='total_return',
+    figsize=(12, 8),
+    save_path='reports/param_heatmap.png'
+)
+```
+
+### 参数敏感性分析
+
+对比不同参数对策略表现的影响：
+
+```python
+from visualization import plot_parameter_sensitivity
+
+fig = plot_parameter_sensitivity(
+    optimization_results,
+    params=['BREAKOUT_N', 'MA_FAST', 'RSI_MAX'],
+    metric='sharpe_ratio',
+    figsize=(14, 8),
+    save_path='reports/param_sensitivity.png'
+)
+```
+
+### 可视化配置
+
+图表风格设置：
+
+```python
+from visualization.plotter import Plotter
+
+# 设置绘图风格
+Plotter.setup_style(style='seaborn-v0_8-darkgrid')
+
+# 保存图表
+Plotter.save_figure(fig, 'path/to/chart.png', dpi=150)
+```
+
+## 缓存和并发系统
+
+系统提供高性能的缓存机制和并发处理能力，支持多线程、批量处理和智能缓存管理。
+
+### 优化的缓存管理器
+
+基于LRU策略的两级缓存（内存+磁盘），支持压缩存储：
+
+```python
+from core.cache_manager_optimized import CacheManager
+
+# 初始化缓存管理器
+cache = CacheManager(
+    cache_dir="./cache",
+    memory_cache_size=100,  # 内存缓存容量
+    enable_compression=True  # 启用gzip压缩
+)
+
+# 存储数据
+cache.put('trade_cal', trade_days, 'key1')
+
+# 获取数据
+result = cache.get('trade_cal', 'key1', ttl_days=7)
+
+# 查看统计信息
+cache.print_cache_stats()
+
+# 清理缓存
+cache.clear('trade_cal')  # 清理特定类型
+cache.clear()  # 清理全部
+```
+
+缓存特性：
+- **两级缓存**: 内存缓存(快速) + 磁盘缓存(持久化)
+- **LRU策略**: 自动淘汰最久未使用的数据
+- **压缩存储**: 使用gzip压缩，节省存储空间
+- **线程安全**: 支持多线程并发访问
+- **统计功能**: 实时监控缓存命中率
+
+### 线程安全的限流器
+
+支持两种限流算法：
+
+#### 滑动窗口限流器
+
+```python
+from core.utils_optimized import RateLimiter
+
+# 创建限流器（每分钟最多200次调用）
+limiter = RateLimiter(max_calls_per_minute=200)
+
+# 在API调用前等待
+limiter.wait_if_needed()
+```
+
+#### 令牌桶限流器（支持并发）
+
+```python
+from core.utils_optimized import ConcurrentRateLimiter
+
+# 创建令牌桶限流器（每秒60个令牌）
+limiter = ConcurrentRateLimiter(max_rate=60.0, capacity=60)
+
+# 获取令牌（自动等待）
+if limiter.acquire(timeout=10.0):
+    # 执行操作
+    pass
+```
+
+### 线程池和批量处理器
+
+#### 线程池工具
+
+```python
+from core.utils_optimized import ThreadPool
+
+# 创建线程池
+pool = ThreadPool(max_workers=4, rate_limiter=limiter)
+
+# 提交单个任务
+future = pool.submit(some_function, arg1, arg2)
+result = future.result()
+
+# 批量处理
+results = pool.map(some_function, items_list)
+
+pool.shutdown()
+```
+
+#### 批量处理器
+
+```python
+from core.utils_optimized import BatchProcessor
+
+# 创建批量处理器
+processor = BatchProcessor(batch_size=100, max_workers=4)
+
+# 处理项目
+results = processor.process(items, process_function)
+
+# 按批处理
+batch_results = processor.process_batches(items, batch_function)
+```
+
+### 重试装饰器
+
+自动重试失败的函数调用：
+
+```python
+from core.utils_optimized import retry_on_failure
+
+@retry_on_failure(max_retries=3, delay=1.0, backoff=2.0)
+def fetch_data():
+    # 获取数据（自动重试最多3次）
+    ...
+
+result = fetch_data()
+```
+
+### 优化的数据获取器
+
+支持并发请求、批量获取、自动重试：
+
+```python
+from core.data_fetcher_optimized import DataFetcherOptimized
+
+# 初始化优化的数据获取器
+fetcher = DataFetcherOptimized(
+    token=token,
+    use_concurrent_limiter=True,
+    max_workers=4
+)
+
+# 批量获取多天数据
+trade_dates = ['20240101', '20240102', '20240103']
+daily_data = fetcher.get_daily_window(trade_dates)
+
+# 批量获取多只股票数据
+ts_codes = ['000001.SZ', '000002.SZ', '600000.SH']
+stock_data = fetcher.get_daily_batch_by_ts_codes(
+    ts_codes, 
+    start_date='20240101', 
+    end_date='20240131'
+)
+
+# 查看缓存统计
+fetcher.print_cache_stats()
+
+# 清理资源
+fetcher.shutdown()
+```
+
+### 性能优化建议
+
+1. **使用优化的数据获取器**: 对于需要获取大量数据的场景，使用`DataFetcherOptimized`
+2. **合理设置缓存大小**: 内存缓存大小建议设置为100-200
+3. **启用压缩**: 对于大数据集，启用gzip压缩以节省空间
+4. **调整并发数**: 根据API限制和网络情况调整`max_workers`
+5. **监控缓存命中率**: 定期查看缓存统计，优化缓存策略
+
 ## 日志系统
 
 系统内置完整的日志记录功能，支持多级别日志输出。
@@ -505,7 +835,27 @@ print(opt_report)
 
 ## 版本历史
 
-### v2.5.0 (最新)
+### v2.7.0 (最新)
+- 优化缓存机制 - 实现内存缓存+LRU策略，提升缓存命中率
+- 实现线程安全的速率限制器（令牌桶算法）
+- 增强并发处理能力 - 线程池、进程池、批量处理器
+- 实现优化的数据获取器 - 支持并发请求、自动重试、批量获取
+- 添加缓存压缩功能（gzip）以节省存储空间
+- 实现重试装饰器，自动处理API调用失败
+- 添加缓存和并发模块的完整测试用例（6个测试类，21个测试）
+- 提供缓存统计功能，监控缓存效率
+
+### v2.6.0
+- 新增可视化图表生成模块（visualization/plotter.py）
+- 实现股票K线图绘制（支持MA、布林带、成交量、MACD）
+- 实现技术指标图绘制（RSI、KDJ、CCI、ATR）
+- 实现回测结果可视化（净值曲线、回撤曲线、月度收益热力图、交易分布）
+- 实现参数优化热力图（二维参数空间可视化）
+- 实现参数敏感性分析图（多参数对比分析）
+- 添加可视化模块的完整测试用例（8个测试类，22个测试）
+- 集成matplotlib和seaborn可视化库
+
+### v2.5.0
 - 新增数据验证模块（validators.py）
 - 实现DataFrame验证器（列检查、类型验证、行数验证）
 - 实现价格数据验证器（OHLC有效性、正数检查）

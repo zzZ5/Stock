@@ -15,9 +15,9 @@ def run_tests(test_type="all"):
     运行测试
 
     参数:
-        test_type: 测试类型 (all, unit, indicators, config, logger)
+        test_type: 测试类型 (all, unit, indicators, config, logger, validators)
     """
-    base_cmd = ["pytest", "-v", "--tb=short"]
+    base_cmd = [sys.executable, "-m", "pytest", "-v", "--tb=short"]
     
     if test_type == "all":
         cmd = base_cmd + ["tests/"]
@@ -27,6 +27,8 @@ def run_tests(test_type="all"):
         cmd = base_cmd + ["tests/test_config.py"]
     elif test_type == "logger":
         cmd = base_cmd + ["tests/test_logger.py"]
+    elif test_type == "validators":
+        cmd = base_cmd + ["tests/test_validators.py"]
     else:
         print(f"未知的测试类型: {test_type}")
         return False
@@ -42,6 +44,8 @@ def run_tests(test_type="all"):
 def run_with_coverage():
     """运行测试并生成覆盖率报告"""
     cmd = [
+        sys.executable,
+        "-m",
         "pytest",
         "--cov=.",
         "--cov-report=html",
@@ -69,7 +73,7 @@ def main():
     parser = argparse.ArgumentParser(description="运行趋势雷达选股系统的测试")
     parser.add_argument(
         "--type",
-        choices=["all", "indicators", "config", "logger"],
+        choices=["all", "indicators", "config", "logger", "validators"],
         default="all",
         help="测试类型"
     )

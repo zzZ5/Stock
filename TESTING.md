@@ -40,6 +40,8 @@ python -m pytest tests/test_indicators.py::TestSMA::test_sma_basic -v
 python run_tests.py --type indicators
 python run_tests.py --type config
 python run_tests.py --type logger
+python run_tests.py --type validators
+python run_tests.py --type visualization
 ```
 
 ### 运行测试并生成覆盖率报告
@@ -80,6 +82,37 @@ python run_tests.py --coverage
 - **TestGetLogger**: 测试获取logger实例
 - **TestLoggerOutput**: 测试日志输出
 - **TestLoggerLevels**: 测试日志级别
+
+### tests/test_validators.py
+测试数据验证器的功能：
+- **TestDataFrameValidator**: 测试DataFrame验证
+- **TestPriceValidator**: 测试价格数据验证
+- **TestDateValidator**: 测试日期验证
+- **TestParameterValidator**: 测试参数验证
+- **TestConfigValidator**: 测试配置验证
+- **TestSafeCalculator**: 测试安全计算
+
+### tests/test_visualization.py
+测试可视化模块的功能：
+- **TestPlotter**: 测试绘图器基础功能
+- **TestStockCandlestick**: 测试K线图绘制
+- **TestStockIndicators**: 测试技术指标图绘制
+- **TestBacktestResults**: 测试回测结果可视化
+- **TestDrawdownChart**: 测试回撤图绘制
+- **TestMonthlyReturns**: 测试月度收益图绘制
+- **TestParameterHeatmap**: 测试参数热力图
+- **TestParameterSensitivity**: 测试参数敏感性分析
+
+### tests/test_cache_concurrent.py
+测试缓存和并发模块：
+- **TestLRUCache**: 测试LRU缓存
+- **TestCacheManager**: 测试优化的缓存管理器
+- **TestRateLimiter**: 测试速率限制器
+- **TestConcurrentRateLimiter**: 测试并发限流器
+- **TestProgressTracker**: 测试进度追踪器
+- **TestThreadPool**: 测试线程池
+- **TestBatchProcessor**: 测试批量处理器
+- **TestRetryDecorator**: 测试重试装饰器
 
 ## pytest 配置
 

@@ -170,6 +170,13 @@ class PriceValidator:
         required_cols = ['open', 'high', 'low', 'close']
         df = DataFrameValidator.validate_dataframe(df, required_cols, "OHLC数据")
 
+        # 检查负数价格（优先检查，不能修正负数）
+        for col in ['open', 'high', 'low', 'close']:
+            negative = df[col] < 0
+            if negative.any():
+                logger.error(f"发现 {negative.sum()} 行数据 {col} 为负数")
+                raise ValidationError(f"{col} 不能为负数")
+
         # 验证high >= low
         invalid_high_low = df['high'] < df['low']
         if invalid_high_low.any():
@@ -196,13 +203,6 @@ class PriceValidator:
                 df.loc[invalid_open, 'low'],
                 df.loc[invalid_open, 'high']
             )
-
-        # 检查负数价格
-        for col in ['open', 'high', 'low', 'close']:
-            negative = df[col] < 0
-            if negative.any():
-                logger.error(f"发现 {negative.sum()} 行数据 {col} 为负数")
-                raise ValidationError(f"{col} 不能为负数")
 
         logger.debug("OHLC数据验证通过")
         return df

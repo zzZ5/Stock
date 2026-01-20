@@ -49,9 +49,9 @@ class TestConfigParameters:
         assert isinstance(config.RSI_MAX, (int, float))
     
     def test_loss_pct_negative(self):
-        """测试止损比例应该为负数"""
-        assert config.MAX_LOSS_PCT < 0
-        assert abs(config.MAX_LOSS_PCT) <= 0.5  # 最大止损不应超过50%
+        """测试止损比例应该为正数"""
+        assert config.MAX_LOSS_PCT > 0
+        assert config.MAX_LOSS_PCT <= 0.5  # 最大止损不应超过50%
         assert isinstance(config.MAX_LOSS_PCT, (int, float))
     
     def test_atr_params_valid(self):
