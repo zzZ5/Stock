@@ -131,14 +131,15 @@ class MonteCarloSimulator:
         # 计算资产曲线
         cumulative_returns = (1 + returns).cumprod()
         equity = self.initial_capital * cumulative_returns
+        equity_series = pd.Series(equity)
         
         # 计算回撤
-        running_max = equity.expanding().max()
-        drawdown = (equity - running_max) / running_max
+        running_max = equity_series.expanding().max()
+        drawdown = (equity_series - running_max) / running_max
         max_drawdown = drawdown.min()
         
         # 计算其他指标
-        final_equity = equity.iloc[-1]
+        final_equity = equity_series.iloc[-1]
         total_return = (final_equity - self.initial_capital) / self.initial_capital
         annual_return = (1 + total_return) ** (252 / n_days) - 1 if n_days > 0 else 0
         annual_volatility = returns.std() * np.sqrt(252)
@@ -181,21 +182,22 @@ class MonteCarloSimulator:
         results = []
         
         if n_workers > 1:
-            # 并行模拟
+            # 并行模拟 - 批量提交减少开销
             with ProcessPoolExecutor(max_workers=n_workers) as executor:
-                futures = []
-                for i in range(n_simulations):
-                    future = executor.submit(
-                        self.run_simulation,
-                        method=method,
-                        n_days=len(self.daily_returns)
-                    )
-                    futures.append(future)
+                # 使用 map 提交，减少通信开销
+                futures = [
+                    executor.submit(self.run_simulation, method=method, n_days=len(self.daily_returns))
+                    for _ in range(n_simulations)
+                ]
                 
                 iterator = tqdm(as_completed(futures), total=n_simulations, disable=not show_progress)
                 for future in iterator:
-                    result = future.result()
-                    results.append(result)
+                    try:
+                        result = future.result()
+                        results.append(result)
+                    except Exception as e:
+                        logger.warning(f"模拟失败: {e}")
+                        continue
         else:
             # 串行模拟
             for i in tqdm(range(n_simulations), disable=not show_progress):

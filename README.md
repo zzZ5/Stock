@@ -30,46 +30,49 @@ pip install -r requirements.txt
 
 ## 快速开始
 
-### 1. 单日选股
-
+### 方式1：交互式菜单（推荐新手）
 ```bash
+python runners/interactive_menu.py
+```
+
+### 方式2：命令行方式
+```bash
+# 使用默认配置运行
 python runners/trend_radar_main.py
+
+# 自定义参数
+python runners/trend_radar_main.py --top-n 10 --index-code 000905.SH --holding-days 10
 ```
 
-### 2. 历史回测
-
+### 其他功能
 ```bash
+# 历史回测
 python runners/backtest_runner.py
-```
 
-### 3. 参数优化
-
-```bash
+# 参数优化
 python runners/optimizer_runner.py
 ```
 
-### 4. 查询股票信息
+## 文档导航
 
-```bash
-python strategy/stock_query.py 000001.SZ
-```
+### 📖 主要文档
 
-### 5. 运行测试
+1. **[DOCUMENTATION.md](DOCUMENTATION.md)** - 完整文档索引 ⭐推荐
+   - 快速开始指南
+   - 用户手册
+   - 核心功能文档
+   - 优化与进阶
+   - 测试文档
 
-```bash
-# 运行所有测试
-python run_tests.py
+2. **[README.md](README.md)** - 项目说明（本文档）
+   - 项目简介
+   - 功能特性
+   - 快速开始
+   - 项目结构
 
-# 运行特定类型测试
-python run_tests.py --type indicators
-python run_tests.py --type config
-python run_tests.py --type logger
+### 📚 归档文档
 
-# 运行测试并生成覆盖率报告
-python run_tests.py --coverage
-```
-
-详细测试说明请参考 [TESTING.md](TESTING.md)
+已归档的旧文档可以在 [ARCHIVE/ARCHIVED_DOCS.md](ARCHIVE/ARCHIVED_DOCS.md) 查看。这些文档已整合到 DOCUMENTATION.md 中。
 
 ## 配置参数
 
@@ -173,14 +176,20 @@ Stock/
 ├── analysis/               # 分析模块
 │   ├── __init__.py
 │   ├── backtest.py         # 回测引擎
+│   ├── backtest_vectorized.py # 向量化回测引擎
 │   ├── optimizer.py        # 参数优化器
 │   └── reporter.py         # 报告生成
 │
 ├── runners/                # 运行脚本
 │   ├── __init__.py
-│   ├── trend_radar_main.py # 主程序（单日选股）
+│   ├── interactive_menu.py # 交互式菜单（推荐）
+│   ├── trend_radar_main.py # 主程序（整合版）
 │   ├── backtest_runner.py  # 回测运行脚本
+│   ├── backtest_demo.py    # 回测演示
 │   └── optimizer_runner.py # 参数优化脚本
+│
+├── ARCHIVE/                # 归档文档
+│   └── ARCHIVED_DOCS.md    # 已归档文档索引
 │
 ├── cache/                  # 缓存目录
 │   ├── trade_cal/          # 交易日历缓存
@@ -191,7 +200,8 @@ Stock/
 ├── reports/                # 报告目录
 │
 ├── requirements.txt        # 依赖包
-├── README.md              # 项目说明
+├── README.md              # 项目说明（本文档）
+├── DOCUMENTATION.md       # 完整文档索引（推荐查阅）
 └── __init__.py            # 包初始化
 ```
 

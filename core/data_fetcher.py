@@ -1,12 +1,14 @@
 """
 趋势雷达选股系统 - 数据获取模块
-负责从Tushare API获取各类数据，并管理缓存
+整合原版和优化版功能，支持并发、批量获取、重试机制
 """
 import pandas as pd
 import tushare as ts
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import time
+from typing import List, Optional, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .cache_manager import CacheManager
 from .utils import RateLimiter
@@ -20,7 +22,8 @@ from .validators import (
 from config.settings import (
     STOCK_BASIC_TTL_DAYS,
     TRADE_CAL_TTL_DAYS,
-    SLEEP_PER_CALL
+    SLEEP_PER_CALL,
+    MAX_CALLS_PER_MINUTE
 )
 
 
