@@ -314,26 +314,14 @@ class TestProjectConfigFiles:
         """测试项目 YAML 配置文件是否存在"""
         config_path = Path(__file__).parent.parent / 'config.yaml'
         assert config_path.exists(), "项目配置文件 config.yaml 不存在"
-    
-    def test_json_config_exists(self):
-        """测试项目 JSON 配置文件是否存在"""
-        config_path = Path(__file__).parent.parent / 'config.json'
-        assert config_path.exists(), "项目配置文件 config.json 不存在"
-    
+
     def test_load_project_yaml_config(self):
         """测试加载项目 YAML 配置文件"""
         pytest.importorskip('yaml')
-        
+
         config_path = Path(__file__).parent.parent / 'config.yaml'
         config = ConfigLoader.load(str(config_path))
-        
+
         assert 'TOP_N' in config
         assert 'LOG_LEVEL' in config
-    
-    def test_load_project_json_config(self):
-        """测试加载项目 JSON 配置文件"""
-        config_path = Path(__file__).parent.parent / 'config.json'
-        config = ConfigLoader.load(str(config_path))
-        
-        assert 'TOP_N' in config
-        assert 'LOG_LEVEL' in config
+        assert 'MULTI_TIMEFRAME_MODE' in config

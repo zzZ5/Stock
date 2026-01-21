@@ -122,6 +122,9 @@ _config_initialized = False
 # 选股策略参数
 def get_TOP_N(): return Config.get('TOP_N', 20)
 def get_BREAKOUT_N(): return Config.get('BREAKOUT_N', 60)
+def get_MULTI_TIMEFRAME_MODE(): return Config.get('MULTI_TIMEFRAME_MODE', True)
+def get_WEEKLY_BREAKOUT_N(): return Config.get('WEEKLY_BREAKOUT_N', 12)
+def get_MONTHLY_BREAKOUT_N(): return Config.get('MONTHLY_BREAKOUT_N', 6)
 def get_MA_FAST(): return Config.get('MA_FAST', 20)
 def get_MA_SLOW(): return Config.get('MA_SLOW', 60)
 def get_VOL_LOOKBACK(): return Config.get('VOL_LOOKBACK', 20)
@@ -173,6 +176,9 @@ __all__ = [
     # Getter 函数（向后兼容）
     'get_TOP_N',
     'get_BREAKOUT_N',
+    'get_MULTI_TIMEFRAME_MODE',
+    'get_WEEKLY_BREAKOUT_N',
+    'get_MONTHLY_BREAKOUT_N',
     'get_MA_FAST',
     'get_MA_SLOW',
     'get_VOL_LOOKBACK',

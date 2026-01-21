@@ -350,6 +350,120 @@ class DataFetcher:
             return pd.concat(results, ignore_index=True)
         return pd.DataFrame()
 
+    def get_daily_multi(self, ts_codes: list[str], start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        批量获取多只股票的日线数据
+
+        参数:
+            ts_codes: 股票代码列表
+            start_date: 开始日期
+            end_date: 结束日期
+
+        返回:
+            日线数据DataFrame
+        """
+        self.logger.debug(f"批量获取{len(ts_codes)}只股票日线数据: {start_date}~{end_date}")
+
+        DateValidator.validate_date_range(start_date, end_date)
+
+        results = []
+        for i, code in enumerate(ts_codes):
+            try:
+                df = self._safe_api_call(
+                    self.pro.daily,
+                    ts_code=code,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                if df is not None and not df.empty:
+                    results.append(df)
+
+                if self.rate_limiter:
+                    self.rate_limiter.sleep(SLEEP_PER_CALL)
+            except Exception as e:
+                self.logger.error(f"获取{code}日线数据失败: {e}")
+                continue
+
+        if results:
+            return pd.concat(results, ignore_index=True)
+        return pd.DataFrame()
+
+    def get_weekly_data(self, ts_codes: list[str], start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        批量获取多只股票的周线数据
+
+        参数:
+            ts_codes: 股票代码列表
+            start_date: 开始日期
+            end_date: 结束日期
+
+        返回:
+            周线数据DataFrame
+        """
+        self.logger.debug(f"批量获取{len(ts_codes)}只股票周线数据: {start_date}~{end_date}")
+
+        DateValidator.validate_date_range(start_date, end_date)
+
+        results = []
+        for i, code in enumerate(ts_codes):
+            try:
+                df = self._safe_api_call(
+                    self.pro.weekly,
+                    ts_code=code,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                if df is not None and not df.empty:
+                    results.append(df)
+
+                if self.rate_limiter:
+                    self.rate_limiter.sleep(SLEEP_PER_CALL)
+            except Exception as e:
+                self.logger.error(f"获取{code}周线数据失败: {e}")
+                continue
+
+        if results:
+            return pd.concat(results, ignore_index=True)
+        return pd.DataFrame()
+
+    def get_monthly_data(self, ts_codes: list[str], start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        批量获取多只股票的月线数据
+
+        参数:
+            ts_codes: 股票代码列表
+            start_date: 开始日期
+            end_date: 结束日期
+
+        返回:
+            月线数据DataFrame
+        """
+        self.logger.debug(f"批量获取{len(ts_codes)}只股票月线数据: {start_date}~{end_date}")
+
+        DateValidator.validate_date_range(start_date, end_date)
+
+        results = []
+        for i, code in enumerate(ts_codes):
+            try:
+                df = self._safe_api_call(
+                    self.pro.monthly,
+                    ts_code=code,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                if df is not None and not df.empty:
+                    results.append(df)
+
+                if self.rate_limiter:
+                    self.rate_limiter.sleep(SLEEP_PER_CALL)
+            except Exception as e:
+                self.logger.error(f"获取{code}月线数据失败: {e}")
+                continue
+
+        if results:
+            return pd.concat(results, ignore_index=True)
+        return pd.DataFrame()
+
     def _safe_api_call(self, api_func, *args, **kwargs) -> pd.DataFrame | None:
         """
         安全的API调用，带重试和错误处理

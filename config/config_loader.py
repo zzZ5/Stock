@@ -27,6 +27,9 @@ class ConfigValidator:
     STRATEGY_VALIDATORS = {
         'TOP_N': lambda x: isinstance(x, int) and x > 0,
         'BREAKOUT_N': lambda x: isinstance(x, int) and x > 0,
+        'MULTI_TIMEFRAME_MODE': lambda x: isinstance(x, bool),
+        'WEEKLY_BREAKOUT_N': lambda x: isinstance(x, int) and x > 0,
+        'MONTHLY_BREAKOUT_N': lambda x: isinstance(x, int) and x > 0,
         'MA_FAST': lambda x: isinstance(x, int) and x > 0,
         'MA_SLOW': lambda x: isinstance(x, int) and x > 0,
         'VOL_LOOKBACK': lambda x: isinstance(x, int) and x > 0,
@@ -108,6 +111,9 @@ class ConfigLoader:
         # 选股策略参数
         'TOP_N': 20,
         'BREAKOUT_N': 60,
+        'MULTI_TIMEFRAME_MODE': True,
+        'WEEKLY_BREAKOUT_N': 12,
+        'MONTHLY_BREAKOUT_N': 6,
         'MA_FAST': 20,
         'MA_SLOW': 60,
         'VOL_LOOKBACK': 20,

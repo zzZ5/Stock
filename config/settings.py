@@ -8,8 +8,13 @@
 # =========================
 TOP_N = 20                      # 返回TopN候选股票
 
+# 多周期突破模式
+MULTI_TIMEFRAME_MODE = True     # 是否启用多周期突破（日周月）
+
 # 趋势信号参数
 BREAKOUT_N = 60                 # 60日突破（最高收盘价）
+WEEKLY_BREAKOUT_N = 12          # 12周突破（周线）
+MONTHLY_BREAKOUT_N = 6          # 6月突破（月线）
 MA_FAST = 20                    # 快速均线
 MA_SLOW = 60                    # 慢速均线
 VOL_LOOKBACK = 20               # 量能回看天数

@@ -17,7 +17,8 @@ from config.settings import (
     INDEX_CODE, SAVE_REPORT, REPORT_DIR,
     DEFAULT_HOLDING_DAYS, TOP_N,
     LOG_LEVEL, LOG_DIR, LOG_CONSOLE_OUTPUT,
-    LOG_FILE_OUTPUT, LOG_MAX_FILE_SIZE, LOG_BACKUP_COUNT
+    LOG_FILE_OUTPUT, LOG_MAX_FILE_SIZE, LOG_BACKUP_COUNT,
+    MULTI_TIMEFRAME_MODE, WEEKLY_BREAKOUT_N, MONTHLY_BREAKOUT_N
 )
 from core.logger import Logger, get_logger
 from core.utils import ProgressTracker, RateLimiter
@@ -147,17 +148,68 @@ def run_analysis(args):
             daily_all[col] = pd.to_numeric(daily_all[col], downcast='float')
     daily_all['ts_code'] = daily_all['ts_code'].astype('category')
 
+    # 5) 获取周线和月线数据（多周期模式）
+    weekly_all = pd.DataFrame()
+    monthly_all = pd.DataFrame()
+
+    if MULTI_TIMEFRAME_MODE:
+        print(f"\n多周期模式：获取周线和月线数据...")
+
+        # 获取周线数据
+        need_weeks = WEEKLY_BREAKOUT_N + 5
+        weekly_start_date = trade_dates[-int(need_weeks*5.5)]
+        weekly_end_date = trade_dates[-1]
+        codes_list = list(universe_codes)
+
+        print(f"获取周线数据 ({len(codes_list)}只股票)...")
+        weekly_all = fetcher.get_weekly_data(codes_list, weekly_start_date, weekly_end_date)
+        if not weekly_all.empty:
+            print(f"周线数据获取成功: {len(weekly_all)}条记录")
+        else:
+            print("警告：周线数据获取失败")
+
+        # 获取月线数据
+        need_months = MONTHLY_BREAKOUT_N + 3
+        monthly_start_date = trade_dates[-int(need_months*22)]
+        monthly_end_date = trade_dates[-1]
+
+        print(f"获取月线数据 ({len(codes_list)}只股票)...")
+        monthly_all = fetcher.get_monthly_data(codes_list, monthly_start_date, monthly_end_date)
+        if not monthly_all.empty:
+            print(f"月线数据获取成功: {len(monthly_all)}条记录")
+        else:
+            print("警告：月线数据获取失败")
+
+        # 优化周线和月线数据类型
+        if not weekly_all.empty:
+            for col in numeric_cols:
+                if col in weekly_all.columns:
+                    weekly_all[col] = pd.to_numeric(weekly_all[col], downcast='float')
+            weekly_all['ts_code'] = weekly_all['ts_code'].astype('category')
+
+        if not monthly_all.empty:
+            for col in numeric_cols:
+                if col in monthly_all.columns:
+                    monthly_all[col] = pd.to_numeric(monthly_all[col], downcast='float')
+            monthly_all['ts_code'] = monthly_all['ts_code'].astype('category')
+
+    # 6) 设置多周期数据
+
     excluded_stats = {
         "基础过滤后剩余": len(universe_codes),
         "窗口期有行情数据的股票数": daily_all["ts_code"].nunique(),
     }
 
-    # 5) 当日行情
+    # 7) 当日行情
     df_last = daily_all[daily_all["trade_date"].astype(str) == str(trade_date)].copy()
     excluded_stats["当日有行情"] = df_last["ts_code"].nunique()
 
-    # 6) 选股分析
+    # 8) 选股分析
     progress_analysis = ProgressTracker(daily_all["ts_code"].nunique(), "股票分析")
+
+    # 设置多周期数据到策略类
+    strategy.set_multi_timeframe_data(weekly_all, monthly_all)
+
     top = strategy.analyze_stocks(daily_all, market_ok,
                                progress_callback=progress_analysis.update)
     progress_analysis.finish()
@@ -167,11 +219,11 @@ def run_analysis(args):
 
     excluded_stats["最终进入Top列表"] = 0 if top.empty else len(top)
 
-    # 7) 生成报告
+    # 9) 生成报告
     report = Reporter.render_markdown(trade_date, market_status, top, excluded_stats)
     Reporter.print_console(report, top)
 
-    # 8) 回测
+    # 10) 回测
     backtester = SimpleBacktester(daily_all)
     backtest_result = backtester.evaluate_future_performance(
         top, trade_date, args.holding_days
@@ -179,10 +231,18 @@ def run_analysis(args):
     backtest_summary = Reporter.render_backtest_summary(backtest_result, args.holding_days)
     print(backtest_summary)
 
-    # 9) 保存报告
+    # 11) 保存报告
     if args.save_report:
         full_report = report + backtest_summary
         Reporter.save_report(trade_date, full_report, REPORT_DIR)
+
+    # 多周期统计信息
+    if MULTI_TIMEFRAME_MODE and not top.empty:
+        weekly_count = top.get("weekly_breakout", pd.Series()).sum()
+        monthly_count = top.get("monthly_breakout", pd.Series()).sum()
+        print(f"\n多周期突破统计:")
+        print(f"  周线突破: {weekly_count}只 ({weekly_count/len(top)*100:.1f}%)")
+        print(f"  月线突破: {monthly_count}只 ({monthly_count/len(top)*100:.1f}%)")
 
     return {
         "trade_date": trade_date,
@@ -201,8 +261,23 @@ def main():
     parser.add_argument('--save-report', action='store_true', default=SAVE_REPORT, help='保存报告')
     parser.add_argument('--token', type=str, default='706b1dbca05800fea1d77c3a727f6ad5e0b3a1d0687f8a4e3266fe9c', help='Tushare Token')
     parser.add_argument('--verbose', action='store_true', help='详细输出')
+    parser.add_argument('--multi-tf', action='store_true', default=MULTI_TIMEFRAME_MODE, help='启用多周期突破（日周月）')
+    parser.add_argument('--daily-only', action='store_true', help='仅使用日线突破')
 
     args = parser.parse_args()
+
+    # 处理多周期模式
+    if args.daily_only:
+        from config.settings import settings
+        settings.MULTI_TIMEFRAME_MODE = False
+        print("模式：日线突破仅")
+    elif args.multi_tf:
+        from config.settings import settings
+        settings.MULTI_TIMEFRAME_MODE = True
+        print(f"模式：多周期突破（日+周+月）")
+    else:
+        mode_str = "多周期（日+周+月）" if MULTI_TIMEFRAME_MODE else "日线仅"
+        print(f"模式：{mode_str}")
 
     result = run_analysis(args)
 

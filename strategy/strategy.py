@@ -9,7 +9,8 @@ from config.settings import (
     BREAKOUT_N, MA_FAST, MA_SLOW, VOL_LOOKBACK,
     VOL_CONFIRM_MULT, RSI_MAX, MIN_PRICE,
     MIN_AVG_AMOUNT_20D, EXCLUDE_ONE_WORD_LIMITUP,
-    MAX_LOSS_PCT, ATR_N, ATR_MULT
+    MAX_LOSS_PCT, ATR_N, ATR_MULT,
+    WEEKLY_BREAKOUT_N, MONTHLY_BREAKOUT_N, MULTI_TIMEFRAME_MODE
 )
 from indicators.indicators import (
     sma, atr, rsi,
@@ -46,6 +47,22 @@ class StockStrategy:
                 basic_df = pd.DataFrame()
 
         self.basic = basic_df if basic_df is not None else pd.DataFrame()
+        self.weekly_data = pd.DataFrame()
+        self.monthly_data = pd.DataFrame()
+
+    def set_multi_timeframe_data(self, weekly_data: pd.DataFrame = None,
+                                  monthly_data: pd.DataFrame = None):
+        """
+        设置多周期数据（周线、月线）
+
+        参数:
+            weekly_data: 周线数据DataFrame
+            monthly_data: 月线数据DataFrame
+        """
+        if weekly_data is not None:
+            self.weekly_data = weekly_data
+        if monthly_data is not None:
+            self.monthly_data = monthly_data
 
     def filter_basic(self, basic: pd.DataFrame, trade_date: str,
                     trade_dates: list[str] = None) -> pd.DataFrame:
@@ -201,13 +218,24 @@ class StockStrategy:
         wr_val = williams_r(high, low, close).iloc[-1]
         pos_val = price_position(high, low, close).iloc[-1]
 
-        # 突破判断（同时检查收盘价和最高价）
-        breakout_price_close = close.iloc[-BREAKOUT_N:].max()
-        breakout_price_high = high.iloc[-BREAKOUT_N:].max()
-        entry = float(last["close"])
-        high_today = float(last["high"])
-        breakout = (entry >= float(breakout_price_close)) and \
-                  (high_today >= float(breakout_price_high))
+        # 多周期突破判断
+        breakout_info = self._check_multi_timeframe_breakout(
+            code, close, high, float(last["close"]), float(last["high"])
+        )
+
+        # 使用多周期突破信息
+        breakout = breakout_info['daily_breakout']
+        weekly_breakout = breakout_info['weekly_breakout']
+        monthly_breakout = breakout_info['monthly_breakout']
+
+        # 综合突破信号（多周期模式）
+        if MULTI_TIMEFRAME_MODE:
+            # 至少2个周期突破才算强信号
+            breakout_signals = sum([breakout, weekly_breakout, monthly_breakout])
+            breakout = breakout_signals >= 2
+            breakout_price_close = breakout_info['daily_breakout_price']
+        else:
+            breakout_price_close = breakout_info['daily_breakout_price']
 
         # 量能确认
         avg_amt20 = amount.iloc[-VOL_LOOKBACK:].mean()
@@ -250,8 +278,8 @@ class StockStrategy:
                       (np.isfinite(rsi14) and rsi14 <= RSI_MAX)
 
         # 安全计算距离突破的距离
-        if entry > 0 and np.isfinite(breakout_price_close):
-            dist_to_break = (float(breakout_price_close) / entry - 1)
+        if float(last["close"]) > 0 and np.isfinite(breakout_price_close):
+            dist_to_break = (float(breakout_price_close) / float(last["close"]) - 1)
         else:
             dist_to_break = np.nan
 
@@ -263,26 +291,27 @@ class StockStrategy:
             return None
 
         # 止损价
-        hard_stop = entry * (1 - MAX_LOSS_PCT)
+        hard_stop = float(last["close"]) * (1 - MAX_LOSS_PCT)
         if np.isfinite(atr14) and atr14 > 0:
-            atr_stop = entry - ATR_MULT * float(atr14)
+            atr_stop = float(last["close"]) - ATR_MULT * float(atr14)
         else:
             atr_stop = hard_stop
         stop_price = max(hard_stop, atr_stop)
 
         # 安全计算止损百分比
-        if entry > 0:
-            stop_pct = (stop_price / entry - 1)
+        if float(last["close"]) > 0:
+            stop_pct = (stop_price / float(last["close"]) - 1)
         else:
             logger.warning(f"{code}: 入场价格为0")
             stop_pct = -MAX_LOSS_PCT
 
         # 评分（增强版）
         total, reasons = self._calculate_score(
-            breakout, trend_struct, breakout_price_close, entry,
+            breakout, trend_struct, breakout_price_close, float(last["close"]),
             vol_ratio, vol_confirm, rsi14, close, stop_pct,
             market_ok, dist_to_break, ma20, ma60, ma60_slope,
-            adx_val, j_val, pos_val, trend_strong
+            adx_val, j_val, pos_val, trend_strong,
+            weekly_breakout, monthly_breakout, breakout_info
         )
 
         # 获取名称和行业
@@ -293,8 +322,8 @@ class StockStrategy:
             "ts_code": code,
             "name": stock_name,
             "industry": industry,
-            "close": entry,
-            "high_today": high_today,
+            "close": float(last["close"]),
+            "high_today": float(last["high"]),
             "breakout_price": float(breakout_price_close),
             "dist_to_break_pct": float(dist_to_break * 100) if np.isfinite(dist_to_break) else np.nan,
             "score": total,
@@ -305,12 +334,72 @@ class StockStrategy:
             "adx": float(adx_val) if np.isfinite(adx_val) else np.nan,
             "kdj_j": float(j_val) if np.isfinite(j_val) else np.nan,
             "price_position": float(pos_val) if np.isfinite(pos_val) else np.nan,
+            "weekly_breakout": bool(weekly_breakout),
+            "monthly_breakout": bool(monthly_breakout),
         }
+
+    def _check_multi_timeframe_breakout(self, code: str, daily_close, daily_high,
+                                         entry_price: float, high_today: float) -> dict:
+        """
+        检查多周期突破（日、周、月）
+
+        参数:
+            code: 股票代码
+            daily_close: 日线收盘价序列
+            daily_high: 日线最高价序列
+            entry_price: 当前收盘价
+            high_today: 当日最高价
+
+        返回:
+            包含各周期突破信息的字典
+        """
+        result = {
+            'daily_breakout': False,
+            'daily_breakout_price': 0.0,
+            'weekly_breakout': False,
+            'weekly_breakout_price': 0.0,
+            'monthly_breakout': False,
+            'monthly_breakout_price': 0.0,
+        }
+
+        # 日线突破
+        daily_breakout_price_close = daily_close.iloc[-BREAKOUT_N:].max()
+        daily_breakout_price_high = daily_high.iloc[-BREAKOUT_N:].max()
+        result['daily_breakout'] = (entry_price >= float(daily_breakout_price_close)) and \
+                                   (high_today >= float(daily_breakout_price_high))
+        result['daily_breakout_price'] = float(daily_breakout_price_close)
+
+        # 周线突破
+        if not self.weekly_data.empty:
+            weekly_data = self.weekly_data[self.weekly_data["ts_code"] == code]
+            if not weekly_data.empty and len(weekly_data) >= WEEKLY_BREAKOUT_N + 2:
+                weekly_close = weekly_data["close"].astype(float)
+                weekly_high = weekly_data["high"].astype(float)
+                weekly_breakout_price_close = weekly_close.iloc[-WEEKLY_BREAKOUT_N:].max()
+                weekly_breakout_price_high = weekly_high.iloc[-WEEKLY_BREAKOUT_N:].max()
+                result['weekly_breakout'] = (entry_price >= float(weekly_breakout_price_close)) and \
+                                           (high_today >= float(weekly_breakout_price_high))
+                result['weekly_breakout_price'] = float(weekly_breakout_price_close)
+
+        # 月线突破
+        if not self.monthly_data.empty:
+            monthly_data = self.monthly_data[self.monthly_data["ts_code"] == code]
+            if not monthly_data.empty and len(monthly_data) >= MONTHLY_BREAKOUT_N + 2:
+                monthly_close = monthly_data["close"].astype(float)
+                monthly_high = monthly_data["high"].astype(float)
+                monthly_breakout_price_close = monthly_close.iloc[-MONTHLY_BREAKOUT_N:].max()
+                monthly_breakout_price_high = monthly_high.iloc[-MONTHLY_BREAKOUT_N:].max()
+                result['monthly_breakout'] = (entry_price >= float(monthly_breakout_price_close)) and \
+                                             (high_today >= float(monthly_breakout_price_high))
+                result['monthly_breakout_price'] = float(monthly_breakout_price_close)
+
+        return result
 
     def _calculate_score(self, breakout, trend_struct, breakout_price, entry,
                        vol_ratio, vol_confirm, rsi14, close, stop_pct,
                        market_ok, dist_to_break, ma20, ma60, ma60_slope,
-                       adx_val, j_val, pos_val, trend_strong):
+                       adx_val, j_val, pos_val, trend_strong,
+                       weekly_breakout=False, monthly_breakout=False, breakout_info=None):
         """计算得分和理由（增强版）"""
         reasons = []
 
@@ -320,17 +409,44 @@ class StockStrategy:
         else:
             breakout_strength = 0.0
 
-        score_trend = 30 * (
-            0.50 * (1 if breakout else 0)
-            + 0.20 * (1 if trend_struct else 0)
-            + 0.15 * (1 if trend_strong else 0)
-            + 0.15 * (breakout_strength / 0.08)
-        )
+        # 多周期突破得分（日周月共振）
+        if MULTI_TIMEFRAME_MODE and breakout_info is not None:
+            breakout_signals = sum([breakout, weekly_breakout, monthly_breakout])
+            # 3个周期突破: 1.0, 2个周期突破: 0.8, 1个周期突破: 0.5
+            if breakout_signals == 3:
+                breakout_score = 1.0
+                reasons.append(f"日周月三周期共振突破")
+            elif breakout_signals == 2:
+                breakout_score = 0.8
+                periods = []
+                if breakout: periods.append("日")
+                if weekly_breakout: periods.append("周")
+                if monthly_breakout: periods.append("月")
+                reasons.append(f"{'+'.join(periods)}双周期共振突破")
+            else:
+                breakout_score = 0.5
+                reasons.append(f"{'日' if breakout else ('周' if weekly_breakout else '月')}单周期突破")
 
-        if breakout:
-            reasons.append(f"收盘+最高价同时突破近{BREAKOUT_N}日高位（突破价≈{breakout_price:.2f}）")
+            # 加入具体突破价信息
+            reasons.append(f"日突破价≈{breakout_info['daily_breakout_price']:.2f}")
+            if weekly_breakout:
+                reasons.append(f"周突破价≈{breakout_info['weekly_breakout_price']:.2f}")
+            if monthly_breakout:
+                reasons.append(f"月突破价≈{breakout_info['monthly_breakout_price']:.2f}")
         else:
-            reasons.append(f"接近突破：距{BREAKOUT_N}日突破价≈{dist_to_break*100:.2f}%（突破价≈{breakout_price:.2f}）")
+            breakout_score = 1.0 if breakout else 0.5
+            if breakout:
+                reasons.append(f"收盘+最高价同时突破近{BREAKOUT_N}日高位（突破价≈{breakout_price:.2f}）")
+            else:
+                reasons.append(f"接近突破：距{BREAKOUT_N}日突破价≈{dist_to_break*100:.2f}%（突破价≈{breakout_price:.2f}）")
+
+        score_trend = 30 * (
+            0.40 * breakout_score
+            + 0.20 * (1 if trend_struct else 0)
+            + 0.20 * (1 if trend_strong else 0)
+            + 0.10 * (1 if weekly_breakout else 0)
+            + 0.10 * (1 if monthly_breakout else 0)
+        )
 
         reasons.append(
             f"趋势结构：MA{MA_FAST}({ma20:.2f}) {'>' if ma20>ma60 else '<='} "

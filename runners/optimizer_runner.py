@@ -59,7 +59,10 @@ def grid_search_example():
     # 注意：组合数量 = len(values1) * len(values2) * ...
     # 组合越多，优化时间越长
     param_grid = {
-        'BREAKOUT_N': [50, 60, 70],           # 突破周期
+        'BREAKOUT_N': [50, 60, 70],           # 日线突破周期
+        'WEEKLY_BREAKOUT_N': [8, 12, 16],     # 周线突破周期
+        'MONTHLY_BREAKOUT_N': [4, 6, 8],      # 月线突破周期
+        'MULTI_TIMEFRAME_MODE': [True],       # 多周期模式（可添加False对比）
         'MA_FAST': [15, 20, 25],              # 快速均线
         'MA_SLOW': [50, 60, 70],              # 慢速均线
         'VOL_CONFIRM_MULT': [1.2, 1.5, 2.0],   # 量能确认倍数
@@ -94,8 +97,11 @@ def grid_search_example():
         print(f"\n{'='*70}")
         print(f"最优参数组合:")
         print(f"{'='*70}")
-        for col in param_grid.keys():
-            print(f"  {col}: {best_params[col]}")
+        for col in ['MULTI_TIMEFRAME_MODE', 'BREAKOUT_N', 'WEEKLY_BREAKOUT_N',
+                    'MONTHLY_BREAKOUT_N', 'MA_FAST', 'MA_SLOW',
+                    'VOL_CONFIRM_MULT', 'RSI_MAX']:
+            if col in best_params:
+                print(f"  {col}: {best_params[col]}")
         print(f"\n最优得分: {best_params['score']:.2f}")
         print(f"总收益率: {best_params['total_return']:.2f}%")
         print(f"年化收益: {best_params['annual_return']:.2f}%")
@@ -136,6 +142,9 @@ def walk_forward_example():
     # 参数网格（为了加快速度，使用较小网格）
     param_grid = {
         'BREAKOUT_N': [50, 60, 70],
+        'WEEKLY_BREAKOUT_N': [8, 12, 16],
+        'MONTHLY_BREAKOUT_N': [4, 6, 8],
+        'MULTI_TIMEFRAME_MODE': [True],
         'MA_FAST': [15, 20],
         'MA_SLOW': [50, 60],
         'VOL_CONFIRM_MULT': [1.2, 1.5],
@@ -177,7 +186,9 @@ def walk_forward_example():
         print(f"\n{'='*70}")
         print(f"最终建议参数 (基于稳定性分析):")
         print(f"{'='*70}")
-        for col in ['BREAKOUT_N', 'MA_FAST', 'MA_SLOW', 'VOL_CONFIRM_MULT', 'RSI_MAX']:
+        for col in ['MULTI_TIMEFRAME_MODE', 'BREAKOUT_N', 'WEEKLY_BREAKOUT_N',
+                    'MONTHLY_BREAKOUT_N', 'MA_FAST', 'MA_SLOW',
+                    'VOL_CONFIRM_MULT', 'RSI_MAX']:
             if col in wf_df.columns:
                 most_common = wf_df[col].mode().iloc[0] if len(wf_df[col].mode()) > 0 else wf_df[col].iloc[0]
                 print(f"  {col}: {most_common}")
