@@ -14,7 +14,8 @@ class Reporter:
 
     @staticmethod
     def render_markdown(trade_date: str, market_status: dict,
-                       top_df: pd.DataFrame, excluded_stats: dict) -> str:
+                       top_df: pd.DataFrame, excluded_stats: dict,
+                       market_analysis: dict = None, sector_analysis: dict = None) -> str:
         """
         渲染Markdown格式的报告
 
@@ -23,6 +24,8 @@ class Reporter:
             market_status: 市场状态字典
             top_df: Top候选股票DataFrame
             excluded_stats: 排除统计信息
+            market_analysis: 大盘晴雨表分析结果
+            sector_analysis: 板块晴雨表分析结果
 
         返回:
             Markdown格式字符串
@@ -38,14 +41,99 @@ class Reporter:
         lines.append(f"---")
         lines.append(f"")
 
-        # 市场环境
-        lines.append(f"## 市场环境")
-        lines.append(f"")
-        lines.append(f"- **指数MA20**: {market_status.get('ma20', 0):.2f}")
-        lines.append(f"- **指数MA60**: {market_status.get('ma60', 0):.2f}")
-        lines.append(f"- **20日波动率**: {market_status.get('vol20', 0)*100:.2f}%")
-        lines.append(f"- **市场提示**: {market_status.get('hint', '')}")
-        lines.append(f"")
+        # 大盘晴雨表
+        if market_analysis:
+            lines.append(f"## 大盘晴雨表")
+            lines.append(f"")
+
+            # 综合评分和天气
+            score = market_analysis.get('score', 50)
+            weather = market_analysis.get('weather', '☁️ 阴天')
+            lines.append(f"| 指标 | 数值 |")
+            lines.append(f"|------|------|")
+            lines.append(f"| 综合评分 | **{score}/100** |")
+            lines.append(f"| 天气状况 | {weather} |")
+            lines.append(f"| 市场情绪 | {market_analysis.get('sentiment', '未知')} {market_analysis.get('sentiment_emoji', '')} |")
+            lines.append(f"| 趋势 | {market_analysis.get('trend', '未知')} |")
+            lines.append(f"| 趋势强度 | {market_analysis.get('trend_strength', '未知')} |")
+            lines.append(f"| 波动率 | {market_analysis.get('volatility', '未知')} |")
+            lines.append(f"")
+
+            # 技术指标
+            lines.append(f"### 技术指标")
+            lines.append(f"")
+            lines.append(f"| 指标 | 数值 | 说明 |")
+            lines.append(f"|------|------|------|")
+            lines.append(f"| 收盘价 | {market_analysis.get('close', 0):.2f} | - |")
+            lines.append(f"| MA5 | {market_analysis.get('ma5', 0):.2f} | 5日均线 |")
+            lines.append(f"| MA10 | {market_analysis.get('ma10', 0):.2f} | 10日均线 |")
+            lines.append(f"| MA20 | {market_analysis.get('ma20', 0):.2f} | 20日均线 |")
+            lines.append(f"| MA60 | {market_analysis.get('ma60', 0):.2f} | 60日均线 |")
+            lines.append(f"| 日涨跌幅 | {market_analysis.get('daily_change', 0):.2f}% | - |")
+            lines.append(f"| 周涨跌幅 | {market_analysis.get('weekly_change', 0):.2f}% | 近5日 |")
+            lines.append(f"| 月涨跌幅 | {market_analysis.get('monthly_change', 0):.2f}% | 近20日 |")
+            lines.append(f"| RSI(14) | {market_analysis.get('rsi', 0):.1f} | 相对强弱指标 |")
+            lines.append(f"| ADX(14) | {market_analysis.get('adx', 0):.1f} | 趋势强度指标 |")
+            lines.append(f"| ATR波动 | {market_analysis.get('atr_pct', 0):.2f}% | 平均真实波幅 |")
+            lines.append(f"| 量比 | {market_analysis.get('vol_ratio', 0):.2f}x | 成交量倍数 |")
+            lines.append(f"| 价格位置 | {market_analysis.get('price_position', 0):.1f}% | 20日高低区间 |")
+            lines.append(f"")
+
+            # 市场环境（保持兼容性）
+            lines.append(f"### 市场环境")
+            lines.append(f"")
+            lines.append(f"- **指数MA20**: {market_status.get('ma20', 0):.2f}")
+            lines.append(f"- **指数MA60**: {market_status.get('ma60', 0):.2f}")
+            lines.append(f"- **20日波动率**: {market_status.get('vol20', 0)*100:.2f}%")
+            lines.append(f"- **市场提示**: {market_status.get('hint', '')}")
+            lines.append(f"")
+        else:
+            # 市场环境（原有逻辑）
+            lines.append(f"## 市场环境")
+            lines.append(f"")
+            lines.append(f"- **指数MA20**: {market_status.get('ma20', 0):.2f}")
+            lines.append(f"- **指数MA60**: {market_status.get('ma60', 0):.2f}")
+            lines.append(f"- **20日波动率**: {market_status.get('vol20', 0)*100:.2f}%")
+            lines.append(f"- **市场提示**: {market_status.get('hint', '')}")
+            lines.append(f"")
+
+        # 板块晴雨表
+        if sector_analysis:
+            lines.append(f"## 板块晴雨表")
+            lines.append(f"")
+
+            # 市场广度
+            breadth = sector_analysis.get('market_breadth', 50)
+            lines.append(f"**市场广度（涨跌家数比）**: {breadth:.1f}%")
+            lines.append(f"")
+
+            # 领涨板块
+            top_sectors = sector_analysis.get('top_sectors', [])
+            if top_sectors:
+                lines.append(f"### 领涨板块")
+                lines.append(f"")
+                lines.append(f"| 排名 | 板块 | 评分 | 平均涨幅 | 上涨:下跌 | 涨停 |")
+                lines.append(f"|------|------|------|----------|----------|------|")
+                for idx, sector in enumerate(top_sectors):
+                    up_down = f"{sector['up_count']}:{sector['down_count']}"
+                    lines.append(f"| {idx+1} | {sector['industry']} | {sector['score']:.0f} | "
+                               f"{sector['avg_pct_chg']:.2f}% | {up_down} | {sector['limit_up']} |")
+                lines.append(f"")
+
+            # 走弱板块
+            weak_sectors = sector_analysis.get('weak_sectors', [])
+            if weak_sectors:
+                lines.append(f"### 走弱板块")
+                lines.append(f"")
+                lines.append(f"| 排名 | 板块 | 评分 | 平均涨幅 | 上涨:下跌 | 跌停 |")
+                lines.append(f"|------|------|------|----------|----------|------|")
+                for idx, sector in enumerate(reversed(weak_sectors)):
+                    up_down = f"{sector['up_count']}:{sector['down_count']}"
+                    lines.append(f"| {len(weak_sectors)-idx} | {sector['industry']} | {sector['score']:.0f} | "
+                               f"{sector['avg_pct_chg']:.2f}% | {up_down} | {sector['limit_down']} |")
+                lines.append(f"")
+
+        # 统计信息
 
         # 统计信息
         lines.append(f"## 选股统计")

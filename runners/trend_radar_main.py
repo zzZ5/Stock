@@ -19,6 +19,7 @@ from core.utils import ProgressTracker, RateLimiter
 from core.data_fetcher import DataFetcher
 from strategy.strategy import StockStrategy
 from analysis.reporter import Reporter
+from analysis.market_analyzer import MarketAnalyzer, SectorAnalyzer
 from indicators.indicators import sma, atr, rsi, adx
 
 # 初始化日志系统
@@ -107,16 +108,78 @@ def run_analysis(args):
 
     # 3) 获取指数数据
     need_days = 120
-    progress_idx = ProgressTracker(need_days, f"指数数据({args.index_code})")
+    progress_idx = ProgressTracker(need_days, f"指数数据({args.index_code})", rate_limiter)
     idx_hist = fetcher.get_index_window(args.index_code, trade_dates, need_days,
                                      progress_callback=progress_idx.update)
     progress_idx.finish()
 
+    # 验证指数数据
+    if idx_hist.empty:
+        raise RuntimeError(f"未获取到指数数据: {args.index_code}")
+
+    actual_days = len(idx_hist)
     idx_hist = idx_hist.sort_values("trade_date")
     idx_close = idx_hist["close"].astype(float)
-    idx_ma20 = sma(idx_close, 20).iloc[-1]
-    idx_ma60 = sma(idx_close, 60).iloc[-1]
-    idx_vol20 = idx_close.pct_change().iloc[-21:].std()
+
+    # 大盘晴雨表分析
+    print("\n[大盘分析] 正在分析大盘晴雨表...")
+    market_analyzer = MarketAnalyzer()
+    market_analysis = market_analyzer.analyze(idx_hist, args.index_code)
+
+    # 输出大盘晴雨表
+    print(f"\n{'='*60}")
+    print(f"{'大盘晴雨表':^58}")
+    print(f"{'='*60}")
+    print(f"天气状况: {market_analysis.get('weather', '未知')}")
+    print(f"综合评分: {market_analysis.get('score', 0)}/100")
+    print(f"市场情绪: {market_analysis.get('sentiment', '未知')} {market_analysis.get('sentiment_emoji', '')}")
+    print(f"趋势: {market_analysis.get('trend', '未知')} (强度: {market_analysis.get('trend_strength', '未知')})")
+    print(f"日涨跌: {market_analysis.get('daily_change', 0):.2f}% | 周涨跌: {market_analysis.get('weekly_change', 0):.2f}% | 月涨跌: {market_analysis.get('monthly_change', 0):.2f}%")
+    print(f"{'='*60}\n")
+
+    # 根据实际数据量动态调整指标计算
+    print(f"指数数据实际获取: {actual_days}天")
+
+    # 计算MA20（需要至少20天数据）
+    if actual_days < 20:
+        raise RuntimeError(
+            f"指数数据严重不足，需要至少20个交易日计算MA20，实际获取{actual_days}个。\n"
+            f"请检查：1) 指数代码{args.index_code}是否正确 2) 交易日历数据是否完整"
+        )
+
+    # 根据实际数据量计算MA20
+    ma_period = min(20, actual_days)
+    idx_ma20 = sma(idx_close, ma_period).iloc[-1]
+
+    # 计算MA60（需要至少60天数据）
+    if actual_days >= 60:
+        idx_ma60 = sma(idx_close, 60).iloc[-1]
+    else:
+        # 数据不足60天时，使用实际数据量的一半或最大可用值
+        ma_period = min(60, actual_days)
+        idx_ma60 = sma(idx_close, ma_period).iloc[-1]
+        print(f"警告：数据不足60天，MA60使用{ma_period}日均线")
+
+    # 波动率计算
+    vol_period = min(21, actual_days)
+    if actual_days >= 2:
+        idx_vol20 = idx_close.pct_change().iloc[-vol_period:].std()
+    else:
+        idx_vol20 = 0.0
+        print(f"警告：数据不足，无法计算波动率")
+
+    # 处理可能的NaN值
+    if pd.isna(idx_ma20):
+        idx_ma20 = idx_close.iloc[-1]
+        print(f"警告：MA20计算失败，使用最新收盘价")
+
+    if pd.isna(idx_ma60):
+        idx_ma60 = idx_close.iloc[-1]
+        print(f"警告：MA60计算失败，使用最新收盘价")
+
+    if pd.isna(idx_vol20):
+        idx_vol20 = 0.0
+        print(f"警告：波动率计算失败，使用0")
 
     market_ok = bool(idx_ma20 > idx_ma60)
     market_status = {
@@ -128,7 +191,7 @@ def run_analysis(args):
 
     # 4) 获取日线数据
     need_days_daily = 160
-    progress_daily = ProgressTracker(need_days_daily, "日线数据")
+    progress_daily = ProgressTracker(need_days_daily, "日线数据", rate_limiter)
     daily_all = fetcher.get_daily_window(trade_dates, need_days_daily,
                                       progress_callback=progress_daily.update)
     progress_daily.finish()
@@ -156,7 +219,7 @@ def run_analysis(args):
         codes_list = list(universe_codes)
 
         print(f"获取周线数据 ({len(codes_list)}只股票)...")
-        progress_weekly = ProgressTracker(len(codes_list), "周线数据")
+        progress_weekly = ProgressTracker(len(codes_list), "周线数据", rate_limiter)
         weekly_all = fetcher.get_weekly_data(codes_list, weekly_start_date, weekly_end_date,
                                            progress_callback=progress_weekly.update)
         progress_weekly.finish()
@@ -171,7 +234,7 @@ def run_analysis(args):
         monthly_end_date = trade_dates[-1]
 
         print(f"获取月线数据 ({len(codes_list)}只股票)...")
-        progress_monthly = ProgressTracker(len(codes_list), "月线数据")
+        progress_monthly = ProgressTracker(len(codes_list), "月线数据", rate_limiter)
         monthly_all = fetcher.get_monthly_data(codes_list, monthly_start_date, monthly_end_date,
                                             progress_callback=progress_monthly.update)
         progress_monthly.finish()
@@ -204,8 +267,26 @@ def run_analysis(args):
     df_last = daily_all[daily_all["trade_date"].astype(str) == str(trade_date)].copy()
     excluded_stats["当日有行情"] = df_last["ts_code"].nunique()
 
+    # 板块晴雨表分析
+    print("\n[板块分析] 正在分析板块晴雨表...")
+    sector_analyzer = SectorAnalyzer()
+    sector_analysis = sector_analyzer.analyze(daily_all, basic, trade_date, trade_dates)
+
+    # 输出板块晴雨表
+    if sector_analysis and sector_analysis.get('top_sectors'):
+        print(f"\n{'='*70}")
+        print(f"{'板块晴雨表':^66}")
+        print(f"{'='*70}")
+        print(f"市场广度: {sector_analysis.get('market_breadth', 50):.1f}%")
+        print(f"\n【领涨板块】")
+        print(f"{'排名':<6} {'板块':<20} {'评分':<8} {'平均涨幅':<10}")
+        print(f"{'-'*70}")
+        for idx, sector in enumerate(sector_analysis['top_sectors'][:5]):
+            print(f"{idx+1:<6} {sector['industry']:<20} {sector['score']:<8.0f} {sector['avg_pct_chg']:<10.2f}%")
+        print(f"{'='*70}\n")
+
     # 8) 选股分析
-    progress_analysis = ProgressTracker(daily_all["ts_code"].nunique(), "股票分析")
+    progress_analysis = ProgressTracker(daily_all["ts_code"].nunique(), "股票分析", rate_limiter)
 
     # 设置多周期数据到策略类
     strategy.set_multi_timeframe_data(weekly_all, monthly_all)
@@ -220,7 +301,8 @@ def run_analysis(args):
     excluded_stats["最终进入Top列表"] = 0 if top.empty else len(top)
 
     # 9) 生成报告
-    report = Reporter.render_markdown(trade_date, market_status, top, excluded_stats)
+    report = Reporter.render_markdown(trade_date, market_status, top, excluded_stats,
+                                       market_analysis, sector_analysis)
     Reporter.print_console(report, top)
 
     # 10) 回测
@@ -243,6 +325,15 @@ def run_analysis(args):
         print(f"\n多周期突破统计:")
         print(f"  周线突破: {weekly_count}只 ({weekly_count/len(top)*100:.1f}%)")
         print(f"  月线突破: {monthly_count}只 ({monthly_count/len(top)*100:.1f}%)")
+
+    # 显示API等待统计
+    if fetcher.rate_limiter:
+        total_waits = fetcher.rate_limiter.get_wait_count()
+        if total_waits > 0:
+            print(f"\n📊 API调用统计:")
+            print(f"  因API限制共等待{total_waits}次")
+            print(f"  每次等待约1分钟，这是正常现象")
+            print(f"  使用缓存可以大幅减少等待次数")
 
     return {
         "trade_date": trade_date,

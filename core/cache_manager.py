@@ -77,9 +77,11 @@ class CacheManager:
 
     def _ensure_cache_dirs(self):
         """确保所有缓存目录存在"""
-        subdirs = ["trade_cal", "stock_basic", "daily", "index"]
+        subdirs = ["trade_cal", "stock_basic", "daily", "index", "weekly", "monthly"]
         for subdir in subdirs:
             (self.cache_dir / subdir).mkdir(parents=True, exist_ok=True)
+        # 确保daily下的stocks子目录存在
+        (self.cache_dir / "daily" / "stocks").mkdir(parents=True, exist_ok=True)
 
     def _get_cache_key(self, *args) -> str:
         """生成缓存键"""
@@ -100,9 +102,45 @@ class CacheManager:
         return str(self.cache_dir / "daily" / filename)
 
     def cache_path_index(self, trade_date: str, ts_code: str) -> str:
-        """获取指数数据缓存路径"""
+        """获取指数数据缓存路径（单日）"""
         filename = f"{trade_date}_{ts_code.replace('.', '_')}.csv"
         return str(self.cache_dir / "index" / filename)
+
+    def cache_path_index_range(self, ts_code: str, start_date: str, end_date: str) -> str:
+        """获取指数数据范围缓存路径"""
+        filename = f"{ts_code.replace('.', '_')}_{start_date}_{end_date}.csv"
+        return str(self.cache_dir / "index" / filename)
+
+    def cache_path_weekly(self, ts_code: str, start_date: str, end_date: str) -> str:
+        """获取周线数据缓存路径"""
+        filename = f"{ts_code.replace('.', '_')}_{start_date}_{end_date}.csv"
+        return str(self.cache_dir / "weekly" / filename)
+
+    def cache_path_monthly(self, ts_code: str, start_date: str, end_date: str) -> str:
+        """获取月线数据缓存路径"""
+        filename = f"{ts_code.replace('.', '_')}_{start_date}_{end_date}.csv"
+        return str(self.cache_dir / "monthly" / filename)
+
+    def save_feather(self, df: pd.DataFrame, path: str):
+        """保存DataFrame到Feather文件（比CSV快很多）"""
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        df.to_feather(path)
+
+    def read_feather_if_exists(self, path: str) -> Optional[pd.DataFrame]:
+        """读取Feather文件，如果文件不存在返回None"""
+        if not os.path.exists(path):
+            return None
+
+        try:
+            return pd.read_feather(path)
+        except Exception as e:
+            logger.warning(f"读取Feather缓存文件失败: {path}, 错误: {e}")
+            return None
+
+    def cache_path_stock_daily(self, ts_code: str, start_date: str, end_date: str) -> str:
+        """获取单只股票日线数据缓存路径"""
+        filename = f"{ts_code.replace('.', '_')}_{start_date}_{end_date}.csv"
+        return str(self.cache_dir / "daily" / "stocks" / filename)
 
     def is_cache_expired(self, path: str, ttl_days: int) -> bool:
         """检查缓存是否过期"""

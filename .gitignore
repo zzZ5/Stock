@@ -21,3 +21,4 @@ htmlcov/
 *.swo
 *~
 .DS_Store
+/reports/
