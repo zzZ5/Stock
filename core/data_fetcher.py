@@ -19,12 +19,7 @@ from .validators import (
     DataFrameValidator,
     PriceValidator
 )
-from config.settings import (
-    STOCK_BASIC_TTL_DAYS,
-    TRADE_CAL_TTL_DAYS,
-    SLEEP_PER_CALL,
-    MAX_CALLS_PER_MINUTE
-)
+from config.settings import settings
 
 
 class DataFetcher:
@@ -76,7 +71,7 @@ class DataFetcher:
 
         path = self.cache.cache_path_trade_cal()
 
-        if self.cache.is_cache_expired(path, TRADE_CAL_TTL_DAYS):
+        if self.cache.is_cache_expired(path, settings.TRADE_CAL_TTL_DAYS):
             # 缓存过期，重新获取
             self.logger.info("交易日历缓存过期，重新获取...")
             start = (datetime.strptime(end_date, "%Y%m%d") -
@@ -122,7 +117,7 @@ class DataFetcher:
 
         path = self.cache.cache_path_stock_basic()
 
-        if self.cache.is_cache_expired(path, STOCK_BASIC_TTL_DAYS):
+        if self.cache.is_cache_expired(path, settings.STOCK_BASIC_TTL_DAYS):
             # 缓存过期，重新获取
             self.logger.info("股票基础信息缓存过期，重新获取...")
             basic = self._safe_api_call(
@@ -293,7 +288,7 @@ class DataFetcher:
 
                 if self.rate_limiter:
                     self.rate_limiter.wait_if_needed()
-                    self.rate_limiter.sleep(SLEEP_PER_CALL)
+                    self.rate_limiter.sleep(settings.SLEEP_PER_CALL)
 
             except Exception as e:
                 self.logger.error(f"获取{date}指数数据失败: {e}")
@@ -341,7 +336,7 @@ class DataFetcher:
                     progress_callback(1)
 
                 if self.rate_limiter:
-                    self.rate_limiter.sleep(SLEEP_PER_CALL)
+                    self.rate_limiter.sleep(settings.SLEEP_PER_CALL)
             except Exception as e:
                 self.logger.error(f"获取{date}日线数据失败: {e}")
                 continue
@@ -379,7 +374,7 @@ class DataFetcher:
                     results.append(df)
 
                 if self.rate_limiter:
-                    self.rate_limiter.sleep(SLEEP_PER_CALL)
+                    self.rate_limiter.sleep(settings.SLEEP_PER_CALL)
             except Exception as e:
                 self.logger.error(f"获取{code}日线数据失败: {e}")
                 continue
@@ -388,7 +383,8 @@ class DataFetcher:
             return pd.concat(results, ignore_index=True)
         return pd.DataFrame()
 
-    def get_weekly_data(self, ts_codes: list[str], start_date: str, end_date: str) -> pd.DataFrame:
+    def get_weekly_data(self, ts_codes: list[str], start_date: str, end_date: str,
+                    progress_callback=None) -> pd.DataFrame:
         """
         批量获取多只股票的周线数据
 
@@ -396,6 +392,7 @@ class DataFetcher:
             ts_codes: 股票代码列表
             start_date: 开始日期
             end_date: 结束日期
+            progress_callback: 进度回调函数
 
         返回:
             周线数据DataFrame
@@ -416,8 +413,11 @@ class DataFetcher:
                 if df is not None and not df.empty:
                     results.append(df)
 
+                if progress_callback:
+                    progress_callback(1)
+
                 if self.rate_limiter:
-                    self.rate_limiter.sleep(SLEEP_PER_CALL)
+                    self.rate_limiter.sleep(settings.SLEEP_PER_CALL)
             except Exception as e:
                 self.logger.error(f"获取{code}周线数据失败: {e}")
                 continue
@@ -426,7 +426,8 @@ class DataFetcher:
             return pd.concat(results, ignore_index=True)
         return pd.DataFrame()
 
-    def get_monthly_data(self, ts_codes: list[str], start_date: str, end_date: str) -> pd.DataFrame:
+    def get_monthly_data(self, ts_codes: list[str], start_date: str, end_date: str,
+                     progress_callback=None) -> pd.DataFrame:
         """
         批量获取多只股票的月线数据
 
@@ -434,6 +435,7 @@ class DataFetcher:
             ts_codes: 股票代码列表
             start_date: 开始日期
             end_date: 结束日期
+            progress_callback: 进度回调函数
 
         返回:
             月线数据DataFrame
@@ -454,8 +456,11 @@ class DataFetcher:
                 if df is not None and not df.empty:
                     results.append(df)
 
+                if progress_callback:
+                    progress_callback(1)
+
                 if self.rate_limiter:
-                    self.rate_limiter.sleep(SLEEP_PER_CALL)
+                    self.rate_limiter.sleep(settings.SLEEP_PER_CALL)
             except Exception as e:
                 self.logger.error(f"获取{code}月线数据失败: {e}")
                 continue
@@ -486,7 +491,7 @@ class DataFetcher:
                 result = api_func(*args, **kwargs)
 
                 if self.rate_limiter:
-                    self.rate_limiter.sleep(SLEEP_PER_CALL)
+                    self.rate_limiter.sleep(settings.SLEEP_PER_CALL)
 
                 return result
 

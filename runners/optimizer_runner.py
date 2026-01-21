@@ -9,22 +9,21 @@ import pandas as pd
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config.settings import DEFAULT_HOLDING_DAYS, LOG_LEVEL, LOG_DIR, LOG_CONSOLE_OUTPUT, LOG_FILE_OUTPUT, LOG_MAX_FILE_SIZE, LOG_BACKUP_COUNT
+from config.settings import settings
 from core.logger import Logger, get_logger
 from core.data_fetcher import DataFetcher
 from core.utils import RateLimiter
 from analysis.backtest import BacktestConfig
 from analysis.optimizer import ParameterOptimizer
-import config.settings as config
 
 # 初始化日志系统
 Logger.setup_logging(
-    log_level=LOG_LEVEL,
-    log_dir=LOG_DIR,
-    console_output=LOG_CONSOLE_OUTPUT,
-    file_output=LOG_FILE_OUTPUT,
-    max_file_size=LOG_MAX_FILE_SIZE,
-    backup_count=LOG_BACKUP_COUNT
+    log_level=settings.LOG_LEVEL,
+    log_dir=settings.LOG_DIR,
+    console_output=settings.LOG_CONSOLE_OUTPUT,
+    file_output=settings.LOG_FILE_OUTPUT,
+    max_file_size=settings.LOG_MAX_FILE_SIZE,
+    backup_count=settings.LOG_BACKUP_COUNT
 )
 logger = get_logger(__name__)
 

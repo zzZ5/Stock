@@ -5,13 +5,7 @@
 import pandas as pd
 import numpy as np
 
-from config.settings import (
-    BREAKOUT_N, MA_FAST, MA_SLOW, VOL_LOOKBACK,
-    VOL_CONFIRM_MULT, RSI_MAX, MIN_PRICE,
-    MIN_AVG_AMOUNT_20D, EXCLUDE_ONE_WORD_LIMITUP,
-    MAX_LOSS_PCT, ATR_N, ATR_MULT,
-    WEEKLY_BREAKOUT_N, MONTHLY_BREAKOUT_N, MULTI_TIMEFRAME_MODE
-)
+from config.settings import settings
 from indicators.indicators import (
     sma, atr, rsi,
     adx, kdj, williams_r, price_position
@@ -89,16 +83,18 @@ class StockStrategy:
                                          format="%Y%m%d", errors="coerce")
         today = pd.to_datetime(trade_date, format="%Y%m%d")
 
+        min_list_days = settings.MIN_LIST_DAYS if hasattr(settings, 'MIN_LIST_DAYS') else 120
+
         if trade_dates is not None:
             # 使用实际交易日计算
             trade_date_set = set(trade_dates)
             basic = basic[basic["list_date"].apply(
                 lambda x: len([d for d in trade_dates
                              if d >= x.strftime("%Y%m%d") and d <= trade_date])
-            ) >= 120].copy()
+            ) >= min_list_days].copy()
         else:
             # 回退方案：用日历天*1.6粗略估算
-            basic = basic[(today - basic["list_date"]).dt.days >= 120 * 1.6].copy()
+            basic = basic[(today - basic["list_date"]).dt.days >= min_list_days * 1.6].copy()
 
         return basic
 
@@ -151,7 +147,7 @@ class StockStrategy:
             try:
                 g = hist_sorted[hist_sorted["ts_code"] == code]
 
-                if len(g) < max(BREAKOUT_N, MA_SLOW, VOL_LOOKBACK, ATR_N) + 6:
+                if len(g) < max(settings.BREAKOUT_N, settings.MA_SLOW, settings.VOL_LOOKBACK, settings.ATR_N) + 6:
                     continue
 
                 result = self._analyze_single_stock(g, code, market_ok)
@@ -202,14 +198,14 @@ class StockStrategy:
             return None
 
         # 计算基础指标
-        ma20 = sma(close, MA_FAST).iloc[-1]
-        ma60 = sma(close, MA_SLOW).iloc[-1]
-        ma60_5ago = sma(close, MA_SLOW).iloc[-6]
+        ma20 = sma(close, settings.MA_FAST).iloc[-1]
+        ma60 = sma(close, settings.MA_SLOW).iloc[-1]
+        ma60_5ago = sma(close, settings.MA_SLOW).iloc[-6]
         ma60_slope = ma60 - ma60_5ago
 
         rsi14 = rsi(close, 14).iloc[-1]
         atr14 = atr(stock_data[["high", "low", "close"]].assign(
-            high=high, low=low, close=close), ATR_N).iloc[-1]
+            high=high, low=low, close=close), settings.ATR_N).iloc[-1]
 
         # 计算新指标
         adx_val = adx(high, low, close).iloc[-1]
@@ -229,7 +225,7 @@ class StockStrategy:
         monthly_breakout = breakout_info['monthly_breakout']
 
         # 综合突破信号（多周期模式）
-        if MULTI_TIMEFRAME_MODE:
+        if settings.MULTI_TIMEFRAME_MODE:
             # 至少2个周期突破才算强信号
             breakout_signals = sum([breakout, weekly_breakout, monthly_breakout])
             breakout = breakout_signals >= 2
@@ -238,13 +234,13 @@ class StockStrategy:
             breakout_price_close = breakout_info['daily_breakout_price']
 
         # 量能确认
-        avg_amt20 = amount.iloc[-VOL_LOOKBACK:].mean()
+        avg_amt20 = amount.iloc[-settings.VOL_LOOKBACK:].mean()
         if avg_amt20 <= 0:
             vol_ratio = np.nan
             vol_confirm = False
         else:
             vol_ratio = float(last["amount"]) / avg_amt20
-            vol_confirm = (np.isfinite(vol_ratio) and vol_ratio >= VOL_CONFIRM_MULT)
+            vol_confirm = (np.isfinite(vol_ratio) and vol_ratio >= settings.VOL_CONFIRM_MULT)
 
         # 趋势结构
         trend_struct = (ma20 > ma60) and (ma60_slope > 0)
@@ -262,11 +258,11 @@ class StockStrategy:
 
         # 过滤
         try:
-            if float(last["close"]) < MIN_PRICE:
+            if float(last["close"]) < settings.MIN_PRICE:
                 return None
-            if not np.isfinite(avg_amt20) or avg_amt20 < MIN_AVG_AMOUNT_20D:
+            if not np.isfinite(avg_amt20) or avg_amt20 < settings.MIN_AVG_AMOUNT_20D:
                 return None
-            if EXCLUDE_ONE_WORD_LIMITUP and self.is_one_word_limitup(last):
+            if settings.EXCLUDE_ONE_WORD_LIMITUP and self.is_one_word_limitup(last):
                 return None
         except Exception as e:
             logger.error(f"{code}过滤条件检查失败: {e}")
@@ -275,7 +271,7 @@ class StockStrategy:
         # 候选/观察逻辑（增强版：加入新指标判断）
         signal_hits = sum([breakout, trend_struct, vol_confirm, trend_strong])
         is_candidate = (signal_hits >= 4) and not_overbought and not_too_high and \
-                      (np.isfinite(rsi14) and rsi14 <= RSI_MAX)
+                      (np.isfinite(rsi14) and rsi14 <= settings.RSI_MAX)
 
         # 安全计算距离突破的距离
         if float(last["close"]) > 0 and np.isfinite(breakout_price_close):
@@ -291,9 +287,9 @@ class StockStrategy:
             return None
 
         # 止损价
-        hard_stop = float(last["close"]) * (1 - MAX_LOSS_PCT)
+        hard_stop = float(last["close"]) * (1 - settings.MAX_LOSS_PCT)
         if np.isfinite(atr14) and atr14 > 0:
-            atr_stop = float(last["close"]) - ATR_MULT * float(atr14)
+            atr_stop = float(last["close"]) - settings.ATR_MULT * float(atr14)
         else:
             atr_stop = hard_stop
         stop_price = max(hard_stop, atr_stop)
@@ -303,7 +299,7 @@ class StockStrategy:
             stop_pct = (stop_price / float(last["close"]) - 1)
         else:
             logger.warning(f"{code}: 入场价格为0")
-            stop_pct = -MAX_LOSS_PCT
+            stop_pct = -settings.MAX_LOSS_PCT
 
         # 评分（增强版）
         total, reasons = self._calculate_score(
@@ -363,8 +359,8 @@ class StockStrategy:
         }
 
         # 日线突破
-        daily_breakout_price_close = daily_close.iloc[-BREAKOUT_N:].max()
-        daily_breakout_price_high = daily_high.iloc[-BREAKOUT_N:].max()
+        daily_breakout_price_close = daily_close.iloc[-settings.BREAKOUT_N:].max()
+        daily_breakout_price_high = daily_high.iloc[-settings.BREAKOUT_N:].max()
         result['daily_breakout'] = (entry_price >= float(daily_breakout_price_close)) and \
                                    (high_today >= float(daily_breakout_price_high))
         result['daily_breakout_price'] = float(daily_breakout_price_close)
@@ -372,11 +368,11 @@ class StockStrategy:
         # 周线突破
         if not self.weekly_data.empty:
             weekly_data = self.weekly_data[self.weekly_data["ts_code"] == code]
-            if not weekly_data.empty and len(weekly_data) >= WEEKLY_BREAKOUT_N + 2:
+            if not weekly_data.empty and len(weekly_data) >= settings.WEEKLY_BREAKOUT_N + 2:
                 weekly_close = weekly_data["close"].astype(float)
                 weekly_high = weekly_data["high"].astype(float)
-                weekly_breakout_price_close = weekly_close.iloc[-WEEKLY_BREAKOUT_N:].max()
-                weekly_breakout_price_high = weekly_high.iloc[-WEEKLY_BREAKOUT_N:].max()
+                weekly_breakout_price_close = weekly_close.iloc[-settings.WEEKLY_BREAKOUT_N:].max()
+                weekly_breakout_price_high = weekly_high.iloc[-settings.WEEKLY_BREAKOUT_N:].max()
                 result['weekly_breakout'] = (entry_price >= float(weekly_breakout_price_close)) and \
                                            (high_today >= float(weekly_breakout_price_high))
                 result['weekly_breakout_price'] = float(weekly_breakout_price_close)
@@ -384,11 +380,11 @@ class StockStrategy:
         # 月线突破
         if not self.monthly_data.empty:
             monthly_data = self.monthly_data[self.monthly_data["ts_code"] == code]
-            if not monthly_data.empty and len(monthly_data) >= MONTHLY_BREAKOUT_N + 2:
+            if not monthly_data.empty and len(monthly_data) >= settings.MONTHLY_BREAKOUT_N + 2:
                 monthly_close = monthly_data["close"].astype(float)
                 monthly_high = monthly_data["high"].astype(float)
-                monthly_breakout_price_close = monthly_close.iloc[-MONTHLY_BREAKOUT_N:].max()
-                monthly_breakout_price_high = monthly_high.iloc[-MONTHLY_BREAKOUT_N:].max()
+                monthly_breakout_price_close = monthly_close.iloc[-settings.MONTHLY_BREAKOUT_N:].max()
+                monthly_breakout_price_high = monthly_high.iloc[-settings.MONTHLY_BREAKOUT_N:].max()
                 result['monthly_breakout'] = (entry_price >= float(monthly_breakout_price_close)) and \
                                              (high_today >= float(monthly_breakout_price_high))
                 result['monthly_breakout_price'] = float(monthly_breakout_price_close)
@@ -410,7 +406,7 @@ class StockStrategy:
             breakout_strength = 0.0
 
         # 多周期突破得分（日周月共振）
-        if MULTI_TIMEFRAME_MODE and breakout_info is not None:
+        if settings.MULTI_TIMEFRAME_MODE and breakout_info is not None:
             breakout_signals = sum([breakout, weekly_breakout, monthly_breakout])
             # 3个周期突破: 1.0, 2个周期突破: 0.8, 1个周期突破: 0.5
             if breakout_signals == 3:
@@ -436,9 +432,9 @@ class StockStrategy:
         else:
             breakout_score = 1.0 if breakout else 0.5
             if breakout:
-                reasons.append(f"收盘+最高价同时突破近{BREAKOUT_N}日高位（突破价≈{breakout_price:.2f}）")
+                reasons.append(f"收盘+最高价同时突破近{settings.BREAKOUT_N}日高位（突破价≈{breakout_price:.2f}）")
             else:
-                reasons.append(f"接近突破：距{BREAKOUT_N}日突破价≈{dist_to_break*100:.2f}%（突破价≈{breakout_price:.2f}）")
+                reasons.append(f"接近突破：距{settings.BREAKOUT_N}日突破价≈{dist_to_break*100:.2f}%（突破价≈{breakout_price:.2f}）")
 
         score_trend = 30 * (
             0.40 * breakout_score
@@ -449,8 +445,8 @@ class StockStrategy:
         )
 
         reasons.append(
-            f"趋势结构：MA{MA_FAST}({ma20:.2f}) {'>' if ma20>ma60 else '<='} "
-            f"MA{MA_SLOW}({ma60:.2f})；MA{MA_SLOW}斜率≈{ma60_slope:.3f}"
+            f"趋势结构：MA{settings.MA_FAST}({ma20:.2f}) {'>' if ma20>ma60 else '<='} "
+            f"MA{settings.MA_SLOW}({ma60:.2f})；MA{settings.MA_SLOW}斜率≈{ma60_slope:.3f}"
         )
 
         if np.isfinite(adx_val):
@@ -460,11 +456,11 @@ class StockStrategy:
         vr = float(vol_ratio) if np.isfinite(vol_ratio) else 0.0
         vr_clipped = max(0.0, min(2.5, vr))
         score_vol = 25 * (0.6 * (1 if vol_confirm else 0) + 0.4 * (vr_clipped / 2.5))
-        reasons.append(f"量能：成交额/20日均额≈{vr:.2f}（阈值≥{VOL_CONFIRM_MULT}）")
+        reasons.append(f"量能：成交额/20日均额≈{vr:.2f}（阈值≥{settings.VOL_CONFIRM_MULT}）")
 
         # RSI和KDJ
         if np.isfinite(rsi14):
-            reasons.append(f"RSI14≈{rsi14:.1f}（过热阈值<{RSI_MAX}）")
+            reasons.append(f"RSI14≈{rsi14:.1f}（过热阈值<{settings.RSI_MAX}）")
 
         if np.isfinite(j_val):
             reasons.append(f"KDJ-J≈{j_val:.1f} ({'过热' if j_val > 100 else '超卖' if j_val < 0 else '正常'})")
@@ -498,7 +494,7 @@ class StockStrategy:
         score_risk = 25 * (stop_score - vol_penalty - pos_penalty)
 
         # 止损价
-        hard_stop = entry * (1 - MAX_LOSS_PCT)
+        hard_stop = entry * (1 - settings.MAX_LOSS_PCT)
         reasons.append(f"风控：止损价≈{hard_stop:.2f}（约{stop_pct*100:.2f}%），不超过-10%")
 
         # 市场得分

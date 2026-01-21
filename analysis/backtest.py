@@ -9,12 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import os
 
-from config.settings import (
-    INDEX_CODE, MIN_LIST_DAYS, MIN_PRICE, MIN_AVG_AMOUNT_20D,
-    EXCLUDE_ONE_WORD_LIMITUP, BREAKOUT_N, MA_FAST, MA_SLOW,
-    VOL_LOOKBACK, VOL_CONFIRM_MULT, RSI_MAX, MAX_LOSS_PCT,
-    ATR_N, ATR_MULT, TOP_N
-)
+from config.settings import settings
 from indicators.indicators import sma, atr
 from strategy.strategy import StockStrategy
 from core.validators import (
@@ -270,7 +265,7 @@ class BacktestEngine:
 
         # 获取指数数据判断市场环境
         need_days = 120
-        idx_hist = self.fetcher.get_index_window(INDEX_CODE, all_trade_dates, need_days)
+        idx_hist = self.fetcher.get_index_window(settings.INDEX_CODE, all_trade_dates, need_days)
         idx_hist = idx_hist.sort_values("trade_date")
         idx_close = idx_hist["close"].astype(float)
 
@@ -292,10 +287,10 @@ class BacktestEngine:
             return
 
         # 获取Top候选股票
-        candidates = top_stocks[top_stocks['candidate'] == True].head(TOP_N)
+        candidates = top_stocks[top_stocks['candidate'] == True].head(settings.TOP_N)
 
         if candidates.empty:
-            candidates = top_stocks.head(TOP_N)
+            candidates = top_stocks.head(settings.TOP_N)
 
         # 开仓
         opened_count = 0
@@ -327,7 +322,7 @@ class BacktestEngine:
 
                 # 计算ATR止损价格
                 atr_value = stock.get('atr', 0) if 'atr' in stock else 0
-                atr_stop_price = entry_price - atr_value * ATR_MULT if atr_value > 0 else 0
+                atr_stop_price = entry_price - atr_value * settings.ATR_MULT if atr_value > 0 else 0
 
                 self.positions[stock['ts_code']] = {
                     'entry_price': entry_price,

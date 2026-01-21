@@ -10,8 +10,7 @@ from tqdm import tqdm
 from datetime import datetime, timedelta
 
 from .backtest import BacktestEngine, BacktestConfig
-from config.settings import DEFAULT_HOLDING_DAYS
-import config.settings as config
+from config.settings import settings
 
 
 class ParameterOptimizer:
@@ -68,11 +67,11 @@ class ParameterOptimizer:
             # 保存原始参数
             original_params = {}
             for name in param_names:
-                original_params[name] = getattr(config, name)
+                original_params[name] = getattr(settings, name)
 
             # 更新参数
             for i, name in enumerate(param_names):
-                setattr(config, name, params[i])
+                setattr(settings, name, params[i])
 
             # 运行回测
             from strategy import StockStrategy
@@ -101,7 +100,7 @@ class ParameterOptimizer:
 
             # 恢复原始参数
             for name in param_names:
-                setattr(config, name, original_params[name])
+                setattr(settings, name, original_params[name])
 
         # 转换为DataFrame并排序
         df = pd.DataFrame(results)
@@ -477,7 +476,7 @@ class ParameterOptimizer:
 
             # 更新参数
             for param_name, param_value in current_params.items():
-                setattr(config, param_name, param_value)
+                setattr(settings, param_name, param_value)
 
             # 运行回测
             from strategy import StockStrategy

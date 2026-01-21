@@ -5,7 +5,7 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from config.settings import SAVE_REPORT, REPORT_DIR, TOP_N
+from config.settings import settings
 from core.utils import ensure_dir
 
 
@@ -55,7 +55,7 @@ class Reporter:
         lines.append(f"")
 
         # 候选股票
-        lines.append(f"## 候选股票 (Top {TOP_N})")
+        lines.append(f"## 候选股票 (Top {settings.TOP_N})")
         lines.append(f"")
 
         if top_df.empty:
@@ -198,7 +198,7 @@ class Reporter:
         return "\n".join(lines)
 
     @staticmethod
-    def save_report(trade_date: str, content: str, report_dir: str = REPORT_DIR):
+    def save_report(trade_date: str, content: str, report_dir: str = None):
         """
         保存报告到文件
 
@@ -207,8 +207,11 @@ class Reporter:
             content: 报告内容
             report_dir: 报告目录
         """
-        if not SAVE_REPORT:
+        if not settings.SAVE_REPORT:
             return
+
+        if report_dir is None:
+            report_dir = settings.REPORT_DIR
 
         ensure_dir(report_dir)
         filename = f"trend_radar_{trade_date}.md"
