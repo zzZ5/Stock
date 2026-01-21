@@ -166,11 +166,11 @@ class BacktestEngine:
                 continue
 
             # 2. 检查持仓止损/止盈/最大持仓天数
-            self._check_positions(daily_df, trade_date, capital)
+            capital = self._check_positions(daily_df, trade_date, capital)
 
             # 3. 按周期重新选股（第一天必须选股）
             if i == 0 or i % self.config.rebalance_days == 0:
-                self._run_stock_selection(trade_date, all_trade_dates, capital)
+                capital = self._run_stock_selection(trade_date, all_trade_dates, capital)
 
             # 4. 计算当日总资产
             equity = self._calculate_equity(daily_df, trade_date, capital)
@@ -180,14 +180,14 @@ class BacktestEngine:
             capital = equity['cash']
 
         # 回测结束，平掉所有持仓
-        self._close_all_positions(backtest_dates[-1], capital)
+        capital = self._close_all_positions(backtest_dates[-1], capital)
 
         # 计算回测指标
         results = self._calculate_metrics()
 
         return results
 
-    def _check_positions(self, daily_df: pd.DataFrame, trade_date: str, capital: float):
+    def _check_positions(self, daily_df: pd.DataFrame, trade_date: str, capital: float) -> float:
         """
         检查持仓，执行止损/止盈/最大持仓天数逻辑
 
@@ -195,6 +195,9 @@ class BacktestEngine:
             daily_df: 当日行情数据
             trade_date: 交易日期
             capital: 当前现金
+
+        返回:
+            更新后的现金
         """
         for ts_code in list(self.positions.keys()):
             try:
@@ -243,13 +246,15 @@ class BacktestEngine:
                     position['breakeven_price'] = position['entry_price']
 
                 if exit_reason:
-                    self._close_position(ts_code, current_price, trade_date, exit_reason, capital)
+                    capital = self._close_position(ts_code, current_price, trade_date, exit_reason, capital)
 
             except Exception as e:
                 logger.error(f"检查持仓{ts_code}时发生错误: {e}")
                 continue
 
-    def _run_stock_selection(self, trade_date: str, all_trade_dates: List[str], capital: float):
+        return capital
+
+    def _run_stock_selection(self, trade_date: str, all_trade_dates: List[str], capital: float) -> float:
         """
         运行选股策略，开仓新股票
 
@@ -257,6 +262,9 @@ class BacktestEngine:
             trade_date: 交易日期
             all_trade_dates: 所有交易日历
             capital: 当前现金
+
+        返回:
+            更新后的现金
         """
         if len(self.positions) >= self.config.max_positions:
             return
@@ -339,9 +347,10 @@ class BacktestEngine:
                 opened_count += 1
 
         print(f"  -> 开仓数量: {opened_count}, 当前持仓: {len(self.positions)}")
+        return capital
 
     def _close_position(self, ts_code: str, exit_price: float,
-                       exit_date: str, reason: str, capital: float):
+                       exit_date: str, reason: str, capital: float) -> float:
         """
         平仓单只股票
 
@@ -351,6 +360,9 @@ class BacktestEngine:
             exit_date: 平仓日期
             reason: 平仓原因
             capital: 当前现金（用于更新）
+
+        返回:
+            更新后的现金
         """
         position = self.positions.get(ts_code)
         if not position:
@@ -405,8 +417,15 @@ class BacktestEngine:
         # 移除持仓
         del self.positions[ts_code]
 
-    def _close_all_positions(self, date: str, capital: float):
-        """平掉所有持仓"""
+        return capital
+
+    def _close_all_positions(self, date: str, capital: float) -> float:
+        """
+        平掉所有持仓
+
+        返回:
+            更新后的现金
+        """
         if not self.positions:
             return
 
@@ -421,7 +440,9 @@ class BacktestEngine:
                 continue
 
             exit_price = float(current_data.iloc[0]['close'])
-            self._close_position(ts_code, exit_price, date, 'end_backtest', capital)
+            capital = self._close_position(ts_code, exit_price, date, 'end_backtest', capital)
+
+        return capital
 
     def _calculate_equity(self, daily_df: pd.DataFrame, trade_date: str, cash: float) -> Dict:
         """
@@ -612,6 +633,15 @@ class BacktestEngine:
 
     def save_results(self, filepath: str):
         """保存回测结果到CSV"""
+        # 生成equity文件路径（替换trades为equity）
+        if '_trades_' in filepath or filepath.endswith('_trades.csv'):
+            equity_path = filepath.replace('trades', 'equity')
+        else:
+            # 如果文件名中没有trades，替换扩展名前的部分
+            import os
+            base, ext = os.path.splitext(filepath)
+            equity_path = f"{base}_equity{ext}"
+
         if self.trades:
             trades_df = pd.DataFrame([t.__dict__ for t in self.trades])
             trades_df.to_csv(filepath, index=False, encoding='utf-8-sig')
@@ -619,6 +649,5 @@ class BacktestEngine:
 
         if self.equity_curve:
             equity_df = pd.DataFrame(self.equity_curve)
-            equity_path = filepath.replace('_trades.csv', '_equity.csv')
             equity_df.to_csv(equity_path, index=False, encoding='utf-8-sig')
             print(f"资产曲线已保存到: {equity_path}")

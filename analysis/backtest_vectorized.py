@@ -272,21 +272,52 @@ class VectorizedBacktestEngine(BacktestEngine):
         super().__init__(config, strategy, fetcher)
         self.position_checker = VectorizedPositionChecker(config)
     
-    def _check_positions(self, daily_df: pd.DataFrame, trade_date: str, capital: float):
+    def _check_positions(self, daily_df: pd.DataFrame, trade_date: str, capital: float) -> float:
         """
         向量化版本的持仓检查
-        
+
         覆盖父类方法，使用向量化计算提升性能
+
+        返回:
+            更新后的现金
         """
         # 先检查持仓天数（这部分无法向量化）
         positions_to_close_by_days = self._check_holding_days_vectorized(
             trade_date
         )
-        
+
         # 向量化检查价格相关止损止盈
         positions_to_close_by_price, capital = self.position_checker.check_positions_vectorized(
             self.positions, daily_df, trade_date, capital
         )
+
+        # 合并需要平仓的列表
+        positions_to_close = []
+        close_set = set()
+
+        # 添加天数平仓
+        for item in positions_to_close_by_days:
+            if item['ts_code'] not in close_set:
+                positions_to_close.append(item)
+                close_set.add(item['ts_code'])
+
+        # 添加价格平仓
+        for item in positions_to_close_by_price:
+            if item['ts_code'] not in close_set:
+                positions_to_close.append(item)
+                close_set.add(item['ts_code'])
+
+        # 执行平仓
+        for item in positions_to_close:
+            capital = self._close_position(
+                item['ts_code'],
+                item['price'],
+                trade_date,
+                item['reason'],
+                capital
+            )
+
+        return capital
         
         # 合并需要平仓的列表
         positions_to_close = []

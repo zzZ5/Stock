@@ -43,12 +43,13 @@ class Logger:
 
         # 设置根日志级别
         level = getattr(logging, log_level.upper(), logging.INFO)
-        logging.basicConfig(level=level, force=True)
 
-        # 移除默认处理器
+        # 移除默认处理器（在添加新handler之前）
         root_logger = logging.getLogger()
+        root_logger.setLevel(level)
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
+            handler.close()
 
         # 日志格式
         formatter = logging.Formatter(
