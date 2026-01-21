@@ -14,6 +14,7 @@ from core.data_fetcher import DataFetcher
 from core.utils import RateLimiter
 from strategy.strategy import StockStrategy
 from analysis.backtest import BacktestEngine, BacktestConfig
+from analysis.backtest_vectorized import VectorizedBacktestEngine
 
 # 初始化日志系统
 Logger.setup_logging(
@@ -71,8 +72,8 @@ def main():
     basic_all = fetcher.get_stock_basic()
     strategy = StockStrategy(basic_all)
 
-    # 运行回测
-    engine = BacktestEngine(backtest_config, strategy, fetcher)
+    # 运行回测（使用向量化引擎提升性能）
+    engine = VectorizedBacktestEngine(backtest_config, strategy, fetcher)
     results = engine.run()
 
     # 打印结果
