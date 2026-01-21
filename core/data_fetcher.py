@@ -167,7 +167,7 @@ class DataFetcher:
                 return df
 
         # 缓存不存在或过期，获取数据
-        self.logger.info(f"从API获取{trade_date}日线数据...")
+        self.logger.debug(f"从API获取{trade_date}日线数据...")
 
         # 根据参数选择API调用方法
         if skip_delay:
@@ -193,7 +193,7 @@ class DataFetcher:
                 df = PriceValidator.validate_ohlc(df)
 
                 self.cache.save_csv(df, path)
-                self.logger.info(f"{trade_date}日线数据已保存，共{len(df)}条")
+                self.logger.debug(f"{trade_date}日线数据已保存，共{len(df)}条")
             except ValidationError as e:
                 self.logger.warning(f"{trade_date}日线数据验证失败: {e}")
                 return pd.DataFrame()
