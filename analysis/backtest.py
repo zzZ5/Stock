@@ -267,7 +267,7 @@ class BacktestEngine:
             更新后的现金
         """
         if len(self.positions) >= self.config.max_positions:
-            return
+            return capital
 
         print(f"  -> 选股日期: {trade_date}")
 
@@ -292,7 +292,7 @@ class BacktestEngine:
 
         if top_stocks.empty:
             print("  -> 未找到符合条件的股票")
-            return
+            return capital
 
         # 获取Top候选股票
         candidates = top_stocks[top_stocks['candidate'] == True].head(settings.TOP_N)
@@ -367,12 +367,12 @@ class BacktestEngine:
         position = self.positions.get(ts_code)
         if not position:
             logger.warning(f"平仓失败: 持仓中不存在{ts_code}")
-            return
+            return capital
 
         # 验证价格
         if exit_price <= 0:
             logger.error(f"{ts_code}: 平仓价格无效: {exit_price}")
-            return
+            return capital
 
         # 计算滑点后的价格
         price_with_slippage = exit_price * (1 - self.config.slippage)
@@ -427,7 +427,7 @@ class BacktestEngine:
             更新后的现金
         """
         if not self.positions:
-            return
+            return capital
 
         print(f"\n[平仓] 回测结束，平掉所有持仓...")
 
