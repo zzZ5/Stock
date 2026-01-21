@@ -6,9 +6,9 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple
 from indicators.indicators import sma, atr, rsi, adx
-from core.logger import get_analyzer_logger
+from core.logger import get_logger
 
-logger = get_analyzer_logger()
+logger = get_logger(__name__)
 
 
 class MarketAnalyzer:
@@ -65,19 +65,19 @@ class MarketAnalyzer:
         if len(df) < 60:
             return {"trend": "数据不足"}
 
-        close = df['close'].values
-        current = close[-1]
-        ma5 = sma(close, 5)[-1]
-        ma10 = sma(close, 10)[-1]
-        ma20 = sma(close, 20)[-1]
-        ma60 = sma(close, 60)[-1]
+        close = df['close']
+        current = close.iloc[-1]
+        ma5 = sma(close, 5).iloc[-1]
+        ma10 = sma(close, 10).iloc[-1]
+        ma20 = sma(close, 20).iloc[-1]
+        ma60 = sma(close, 60).iloc[-1]
 
         # 日涨幅
-        daily_change = (current - close[-2]) / close[-2] * 100
+        daily_change = (current - close.iloc[-2]) / close.iloc[-2] * 100
 
         # 累计涨幅
-        weekly_change = (current - close[-5]) / close[-5] * 100 if len(df) >= 5 else 0
-        monthly_change = (current - close[-20]) / close[-20] * 100 if len(df) >= 20 else 0
+        weekly_change = (current - close.iloc[-5]) / close.iloc[-5] * 100 if len(df) >= 5 else 0
+        monthly_change = (current - close.iloc[-20]) / close.iloc[-20] * 100 if len(df) >= 20 else 0
 
         # 均线多头/空头排列
         ma_bullish = (ma5 > ma10 > ma20)
@@ -115,15 +115,15 @@ class MarketAnalyzer:
 
         # RSI
         rsi_values = rsi(df['close'], 14)
-        current_rsi = rsi_values[-1]
+        current_rsi = rsi_values.iloc[-1]
 
         # ADX
         adx_values = adx(df['high'], df['low'], df['close'], 14)
-        current_adx = adx_values[-1]
+        current_adx = adx_values.iloc[-1]
 
         # ATR（波动率）
-        atr_values = atr(df['high'], df['low'], df['close'], 20)
-        current_atr = atr_values[-1]
+        atr_values = atr(df, 20)
+        current_atr = atr_values.iloc[-1]
         atr_pct = current_atr / df['close'].iloc[-1] * 100
 
         # 情绪判断
@@ -169,16 +169,16 @@ class MarketAnalyzer:
             return {"technical": "数据不足"}
 
         # 成交量分析
-        vol = df['vol'].values
-        ma_vol5 = sma(vol, 5)[-1]
-        ma_vol10 = sma(vol, 10)[-1]
-        vol_ratio = vol[-1] / ma_vol10 if ma_vol10 > 0 else 1
+        vol = df['vol']
+        ma_vol5 = sma(vol, 5).iloc[-1]
+        ma_vol10 = sma(vol, 10).iloc[-1]
+        vol_ratio = vol.iloc[-1] / ma_vol10 if ma_vol10 > 0 else 1
 
         # 位置分析
-        close = df['close'].values
+        close = df['close']
         high20 = df['high'][-20:].max()
         low20 = df['low'][-20:].min()
-        price_position = (close[-1] - low20) / (high20 - low20) * 100 if high20 != low20 else 50
+        price_position = (close.iloc[-1] - low20) / (high20 - low20) * 100 if high20 != low20 else 50
 
         # 支撑压力
         support = df['low'][-20:].min()
