@@ -316,7 +316,7 @@ def run_analysis(args):
     # 11) 保存报告
     if args.save_report:
         full_report = report + backtest_summary
-        Reporter.save_report(trade_date, full_report, settings.REPORT_DIR)
+        Reporter.save_report(trade_date, full_report, settings.REPORT_DIR, save_pdf=not args.no_pdf)
 
     # 多周期统计信息
     if settings.MULTI_TIMEFRAME_MODE and not top.empty:
@@ -350,6 +350,7 @@ def main():
     parser.add_argument('--index-code', type=str, default=settings.INDEX_CODE, help='指数代码')
     parser.add_argument('--holding-days', type=int, default=settings.DEFAULT_HOLDING_DAYS, help='持有天数')
     parser.add_argument('--save-report', action='store_true', default=settings.SAVE_REPORT, help='保存报告')
+    parser.add_argument('--no-pdf', action='store_true', help='不生成PDF报告')
     parser.add_argument('--token', type=str, default='706b1dbca05800fea1d77c3a727f6ad5e0b3a1d0687f8a4e3266fe9c', help='Tushare Token')
     parser.add_argument('--verbose', action='store_true', help='详细输出')
     parser.add_argument('--multi-tf', action='store_true', default=settings.MULTI_TIMEFRAME_MODE, help='启用多周期突破（日周月）')

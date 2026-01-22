@@ -8,6 +8,42 @@ from datetime import datetime
 from config.settings import settings
 from core.utils import ensure_dir
 
+# PDF生成（可选，支持多种方案）
+PDF_AVAILABLE = False
+PDF_ENGINE = None
+
+# 方案1: pdfkit（需要wkhtmltopdf）
+try:
+    import pdfkit
+    PDF_AVAILABLE = True
+    PDF_ENGINE = 'pdfkit'
+except (ImportError, OSError):
+    pass
+
+# 方案2: weasyprint（需要GTK+依赖）
+if not PDF_AVAILABLE:
+    try:
+        from weasyprint import HTML
+        PDF_AVAILABLE = True
+        PDF_ENGINE = 'weasyprint'
+    except (ImportError, OSError):
+        pass
+
+# 方案3: reportlab（纯Python）
+if not PDF_AVAILABLE:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        PDF_AVAILABLE = True
+        PDF_ENGINE = 'reportlab'
+    except ImportError:
+        pass
+
 
 class Reporter:
     """报告生成器"""
@@ -40,10 +76,12 @@ class Reporter:
         lines.append(f"")
         lines.append(f"---")
         lines.append(f"")
+        lines.append(f"")
 
         # 大盘晴雨表
         if market_analysis:
             lines.append(f"## 大盘晴雨表")
+            lines.append(f"")
             lines.append(f"")
 
             # 综合评分和天气
@@ -57,6 +95,7 @@ class Reporter:
             lines.append(f"| 趋势 | {market_analysis.get('trend', '未知')} |")
             lines.append(f"| 趋势强度 | {market_analysis.get('trend_strength', '未知')} |")
             lines.append(f"| 波动率 | {market_analysis.get('volatility', '未知')} |")
+            lines.append(f"")
             lines.append(f"")
 
             # 技术指标
@@ -78,6 +117,7 @@ class Reporter:
             lines.append(f"| 量比 | {market_analysis.get('vol_ratio', 0):.2f}x | 成交量倍数 |")
             lines.append(f"| 价格位置 | {market_analysis.get('price_position', 0):.1f}% | 20日高低区间 |")
             lines.append(f"")
+            lines.append(f"")
 
             # 市场环境（保持兼容性）
             lines.append(f"### 市场环境")
@@ -86,6 +126,7 @@ class Reporter:
             lines.append(f"- **指数MA60**: {market_status.get('ma60', 0):.2f}")
             lines.append(f"- **20日波动率**: {market_status.get('vol20', 0)*100:.2f}%")
             lines.append(f"- **市场提示**: {market_status.get('hint', '')}")
+            lines.append(f"")
             lines.append(f"")
         else:
             # 市场环境（原有逻辑）
@@ -96,15 +137,18 @@ class Reporter:
             lines.append(f"- **20日波动率**: {market_status.get('vol20', 0)*100:.2f}%")
             lines.append(f"- **市场提示**: {market_status.get('hint', '')}")
             lines.append(f"")
+            lines.append(f"")
 
         # 板块晴雨表
         if sector_analysis:
             lines.append(f"## 板块晴雨表")
             lines.append(f"")
+            lines.append(f"")
 
             # 市场广度
             breadth = sector_analysis.get('market_breadth', 50)
             lines.append(f"**市场广度（涨跌家数比）**: {breadth:.1f}%")
+            lines.append(f"")
             lines.append(f"")
 
             # 领涨板块
@@ -119,6 +163,7 @@ class Reporter:
                     lines.append(f"| {idx+1} | {sector['industry']} | {sector['score']:.0f} | "
                                f"{sector['avg_pct_chg']:.2f}% | {up_down} | {sector['limit_up']} |")
                 lines.append(f"")
+                lines.append(f"")
 
             # 走弱板块
             weak_sectors = sector_analysis.get('weak_sectors', [])
@@ -132,22 +177,27 @@ class Reporter:
                     lines.append(f"| {len(weak_sectors)-idx} | {sector['industry']} | {sector['score']:.0f} | "
                                f"{sector['avg_pct_chg']:.2f}% | {up_down} | {sector['limit_down']} |")
                 lines.append(f"")
+                lines.append(f"")
 
         # 统计信息
-
-        # 统计信息
+        lines.append(f"---")
+        lines.append(f"")
         lines.append(f"## 选股统计")
+        lines.append(f"")
         lines.append(f"")
         for key, value in excluded_stats.items():
             lines.append(f"- **{key}**: {value}")
+        lines.append(f"")
         lines.append(f"")
 
         # 候选股票
         lines.append(f"## 候选股票 (Top {settings.TOP_N})")
         lines.append(f"")
+        lines.append(f"")
 
         if top_df.empty:
             lines.append(f"无符合条件的股票")
+            lines.append(f"")
         else:
             candidates = top_df[top_df['candidate'] == True]
             watches = top_df[top_df['watch'] == True]
@@ -169,6 +219,7 @@ class Reporter:
 
                     lines.append(f"| {code} | {name} | {industry} | {close:.2f} | {score:.1f} | {stop:.2f} | {dist:.2f}% |")
                 lines.append(f"")
+                lines.append(f"")
 
                 # 详细信息
                 for _, row in candidates.iterrows():
@@ -188,7 +239,8 @@ class Reporter:
                     for reason in row['reasons']:
                         lines.append(f"- {reason}")
                     lines.append(f"")
-
+                    lines.append(f"")
+                    lines.append(f"")
             # 观察股票
             if not watches.empty:
                 lines.append(f"### 观察股票")
@@ -203,7 +255,9 @@ class Reporter:
                     stop = row['stop_price']
                     dist = row.get('dist_to_break_pct', 0)
 
-                    lines.append(f"| {code} | {name} | {close:.2f} | {score:.1f} | {stop:.2f} | {dist:.2f}% |")
+                lines.append(f"| {code} | {name} | {close:.2f} | {score:.1f} | {stop:.2f} | {dist:.2f}% |")
+                lines.append(f"")
+                lines.append(f"")
                 lines.append(f"")
 
         # 免责声明
@@ -243,9 +297,10 @@ class Reporter:
                 stop = row['stop_price']
                 dist = row.get('dist_to_break_pct', 0)
 
-                print(f"{code:<10} {name:<12} {industry:<12} {close:>8.2f} {score:>6.1f} {stop:>8.2f} {dist:>7.2f}%")
+            print(f"{code:<10} {name:<12} {industry:<12} {close:>8.2f} {score:>6.1f} {stop:>8.2f} {dist:>7.2f}%")
 
-            print("-" * 100 + "\n")
+        print("-" * 100 + "\n")
+        print("")
 
     @staticmethod
     def render_backtest_summary(backtest_result: dict, holding_days: int) -> str:
@@ -260,33 +315,40 @@ class Reporter:
             Markdown格式字符串
         """
         lines = []
-        lines.append(f"\n{'='*70}")
-        lines.append(f"{'简单回测结果':^66}")
-        lines.append(f"{'='*70}\n")
-        lines.append(f"持仓天数: {holding_days} 天")
+        lines.append(f"")
+        lines.append(f"---")
+        lines.append(f"")
+        lines.append(f"## 简单回测结果")
+        lines.append(f"")
+        lines.append(f"- **持仓天数**: {holding_days} 天")
         lines.append(f"")
 
         if backtest_result['count'] == 0:
             lines.append(f"无回测数据（未来无交易日）")
         else:
-            lines.append(f"交易数量: {backtest_result['count']}")
-            lines.append(f"平均收益: {backtest_result['avg_return']:.2f}%")
-            lines.append(f"胜率: {backtest_result['win_rate']:.2f}%")
-            lines.append(f"最大盈利: {backtest_result['max_return']:.2f}%")
-            lines.append(f"最大亏损: {backtest_result['min_return']:.2f}%")
+            lines.append(f"- **交易数量**: {backtest_result['count']}")
+            lines.append(f"- **平均收益**: {backtest_result['avg_return']:.2f}%")
+            lines.append(f"- **胜率**: {backtest_result['win_rate']:.2f}%")
+            lines.append(f"- **最大盈利**: {backtest_result['max_return']:.2f}%")
+            lines.append(f"- **最大亏损**: {backtest_result['min_return']:.2f}%")
             lines.append(f"")
 
-            lines.append(f"详细交易记录:")
+            lines.append(f"**详细交易记录**:")
             lines.append(f"")
             lines.append(f"| 代码 | 入场价 | 出场价 | 收益率 |")
             lines.append(f"|------|--------|--------|--------|")
             for detail in backtest_result['details']:
                 lines.append(f"| {detail['code']} | {detail['entry']:.2f} | {detail['exit']:.2f} | {detail['return']*100:.2f}% |")
 
+        lines.append(f"")
+        lines.append(f"---")
+        lines.append(f"")
+        lines.append(f"**免责声明**: 本报告仅供参考，不构成投资建议。投资有风险，入市需谨慎。")
+
         return "\n".join(lines)
 
     @staticmethod
-    def save_report(trade_date: str, content: str, report_dir: str = None):
+    def save_report(trade_date: str, content: str, report_dir: str = None, save_pdf: bool = False):
         """
         保存报告到文件
 
@@ -294,6 +356,7 @@ class Reporter:
             trade_date: 交易日期
             content: 报告内容
             report_dir: 报告目录
+            save_pdf: 是否同时保存PDF
         """
         if not settings.SAVE_REPORT:
             return
@@ -302,13 +365,72 @@ class Reporter:
             report_dir = settings.REPORT_DIR
 
         ensure_dir(report_dir)
-        filename = f"trend_radar_{trade_date}.md"
-        filepath = f"{report_dir}/{filename}"
 
-        with open(filepath, 'w', encoding='utf-8') as f:
+        # 保存Markdown文件
+        filename_md = f"trend_radar_{trade_date}.md"
+        filepath_md = f"{report_dir}/{filename_md}"
+
+        with open(filepath_md, 'w', encoding='utf-8') as f:
             f.write(content)
 
-        print(f"报告已保存: {filepath}")
+        print(f"报告已保存: {filepath_md}")
+
+        # 保存PDF文件
+        if save_pdf and PDF_AVAILABLE:
+            try:
+                filename_pdf = f"trend_radar_{trade_date}.pdf"
+                filepath_pdf = f"{report_dir}/{filename_pdf}"
+
+                if PDF_ENGINE == 'pdfkit':
+                    # 使用pdfkit生成PDF
+                    import shutil
+                    import os
+                    wkhtmltopdf_path = shutil.which('wkhtmltopdf')
+                    # 如果在PATH中找不到，尝试Windows默认安装路径
+                    if not wkhtmltopdf_path and os.name == 'nt':
+                        default_path = r'D:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe'
+                        if os.path.exists(default_path):
+                            wkhtmltopdf_path = default_path
+                    if wkhtmltopdf_path:
+                        html_content = Reporter._markdown_to_html(content)
+                        options = {
+                            'encoding': 'UTF-8',
+                            'quiet': '',
+                            'page-size': 'A4',
+                            'margin-top': '20mm',
+                            'margin-right': '15mm',
+                            'margin-bottom': '20mm',
+                            'margin-left': '15mm',
+                            'enable-local-file-access': '',
+                            'dpi': 300,
+                            'print-media-type': '',
+                        }
+                        config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path)
+                        pdfkit.from_string(html_content, filepath_pdf, options=options, configuration=config)
+                        print(f"PDF已保存: {filepath_pdf} (使用pdfkit)")
+                    else:
+                        print("警告: 未找到wkhtmltopdf，无法使用pdfkit生成PDF")
+                        print("  请安装wkhtmltopdf: https://wkhtmltopdf.org/downloads.html")
+                elif PDF_ENGINE == 'weasyprint':
+                    # 使用weasyprint生成PDF
+                    html_content = Reporter._markdown_to_html(content)
+                    HTML(string=html_content).write_pdf(filepath_pdf)
+                    print(f"PDF已保存: {filepath_pdf} (使用weasyprint)")
+                elif PDF_ENGINE == 'reportlab':
+                    # 使用reportlab生成PDF
+                    Reporter._generate_pdf_with_reportlab(content, filepath_pdf)
+                    print(f"PDF已保存: {filepath_pdf} (使用reportlab)")
+            except Exception as e:
+                print(f"PDF生成失败: {e}")
+                import traceback
+                traceback.print_exc()
+        elif save_pdf and not PDF_AVAILABLE:
+            print("警告: 未安装PDF生成库，无法生成PDF。")
+            print("  请选择以下方式安装：")
+            print("  1) pip install pdfkit && 安装wkhtmltopdf（推荐，中文支持最好）")
+            print("     wkhtmltopdf下载: https://wkhtmltopdf.org/downloads.html")
+            print("  2) pip install weasyprint（需要GTK+依赖）")
+            print("  3) pip install reportlab（纯Python）")
 
     @staticmethod
     def render_backtest_report(backtest_result: dict, backtest_config: object) -> str:
@@ -741,3 +863,512 @@ class Reporter:
         lines.append(f"")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _markdown_to_html(markdown_content: str) -> str:
+        """
+        将Markdown转换为HTML（简化版）
+
+        参数:
+            markdown_content: Markdown内容
+
+        返回:
+            HTML内容
+        """
+        # 直接使用简单转换，避免markdown库的表格问题
+        html = Reporter._simple_markdown_to_html(markdown_content)
+
+        # 添加CSS样式
+        css_style = """
+        <style>
+        @page {
+            size: A4;
+            margin: 15mm;
+        }
+        body {
+            font-family: "Microsoft YaHei", "SimHei", "PingFang SC", Arial, sans-serif;
+            font-size: 11pt;
+            line-height: 1.6;
+            color: #2c3e50;
+            margin: 0;
+        }
+
+        /* 标题样式 */
+        h1 {
+            color: #1a5490;
+            font-size: 22pt;
+            font-weight: bold;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 12px;
+            margin-top: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        h2 {
+            color: #2c3e50;
+            font-size: 16pt;
+            font-weight: bold;
+            border-left: 5px solid #3498db;
+            padding-left: 12px;
+            margin-top: 30px;
+            margin-bottom: 18px;
+            background-color: #f8f9fa;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            page-break-before: always;
+        }
+        h2:first-child {
+            page-break-before: auto;
+        }
+        h3 {
+            color: #34495e;
+            font-size: 14pt;
+            font-weight: bold;
+            margin-top: 22px;
+            margin-bottom: 12px;
+            padding-left: 8px;
+            border-left: 3px solid #95a5a6;
+        }
+        h4 {
+            color: #7f8c8d;
+            font-size: 12pt;
+            font-weight: bold;
+            margin-top: 18px;
+            margin-bottom: 10px;
+        }
+
+        /* 段落样式 */
+        p {
+            margin: 8px 0 12px 0;
+            text-align: justify;
+            line-height: 1.7;
+        }
+
+        /* 表格样式 */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 18px 0;
+            font-size: 10pt;
+        }
+        th, td {
+            border: 1px solid #d0d0d0;
+            padding: 8px 12px;
+            text-align: left;
+            vertical-align: middle;
+        }
+        th {
+            background-color: #f2f2f2;
+            color: #333;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        td {
+            color: #495057;
+        }
+
+        /* 列表样式 */
+        ul, ol {
+            margin: 10px 0;
+            padding-left: 28px;
+        }
+        li {
+            margin: 6px 0;
+            line-height: 1.6;
+            color: #495057;
+        }
+        ul li {
+            list-style-type: disc;
+        }
+        ol li {
+            list-style-type: decimal;
+        }
+
+        /* 代码样式 */
+        code {
+            background-color: #f4f4f4;
+            color: #e74c3c;
+            padding: 2px 6px;
+            font-family: "Consolas", "Monaco", monospace;
+            font-size: 9.5pt;
+            border: 1px solid #ddd;
+        }
+        pre {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-left: 4px solid #6c757d;
+            padding: 12px;
+            margin: 16px 0;
+            font-size: 9pt;
+            line-height: 1.5;
+        }
+        pre code {
+            background: none;
+            border: none;
+            padding: 0;
+            color: #495057;
+        }
+
+        /* 分隔线样式 */
+        hr {
+            border: none;
+            border-top: 2px solid #ddd;
+            margin: 30px 0;
+        }
+
+        /* 强调文本 */
+        strong, b {
+            color: #2980b9;
+            font-weight: bold;
+        }
+
+        /* 警告框 */
+        .warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-left: 5px solid #ffc107;
+            padding: 12px 16px;
+            margin: 15px 0;
+            color: #856404;
+        }
+
+        /* 信息框 */
+        .info {
+            background-color: #d1ecf1;
+            border: 1px solid #17a2b8;
+            border-left: 5px solid #17a2b8;
+            padding: 12px 16px;
+            margin: 15px 0;
+            color: #0c5460;
+        }
+
+        /* 成功框 */
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #28a745;
+            border-left: 5px solid #28a745;
+            padding: 12px 16px;
+            margin: 15px 0;
+            color: #155724;
+        }
+
+        /* 区块间距 */
+        .section {
+            margin-bottom: 24px;
+        }
+
+        /* 紧凑模式 */
+        .compact {
+            margin-top: 8px;
+            margin-bottom: 8px;
+        }
+        </style>
+        """
+
+        return f"""
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="UTF-8">
+            <title>趋势雷达选股报告</title>
+            {css_style}
+        </head>
+        <body>
+            {html}
+        </body>
+        </html>
+        """
+
+    @staticmethod
+    def _simple_markdown_to_html(markdown_content: str) -> str:
+        """
+        简单的Markdown到HTML转换（无需额外依赖）
+
+        参数:
+            markdown_content: Markdown内容
+
+        返回:
+            HTML内容
+        """
+        lines = markdown_content.split('\n')
+        html_lines = []
+        in_code_block = False
+        in_table = False
+        table_rows = []
+        table_headers_processed = False
+
+        for line in lines:
+            # 代码块
+            if line.startswith('```'):
+                # 如果之前在表格中，先关闭表格
+                if in_table and table_rows:
+                    html_lines.append('<table>')
+                    html_lines.extend(table_rows)
+                    html_lines.append('</table>')
+                    table_rows = []
+                    in_table = False
+                    table_headers_processed = False
+
+                in_code_block = not in_code_block
+                html_lines.append('<pre><code>' if in_code_block else '</code></pre>')
+                continue
+
+            if in_code_block:
+                html_lines.append(line)
+                continue
+
+            # 标题
+            if line.startswith('# '):
+                # 如果之前在表格中，先关闭表格
+                if in_table and table_rows:
+                    html_lines.append('<table>')
+                    html_lines.extend(table_rows)
+                    html_lines.append('</table>')
+                    table_rows = []
+                    in_table = False
+                    table_headers_processed = False
+
+                text = line[2:]
+                html_lines.append(f'<h1>{text}</h1>')
+            elif line.startswith('## '):
+                if in_table and table_rows:
+                    html_lines.append('<table>')
+                    html_lines.extend(table_rows)
+                    html_lines.append('</table>')
+                    table_rows = []
+                    in_table = False
+                    table_headers_processed = False
+
+                text = line[3:]
+                html_lines.append(f'<h2>{text}</h2>')
+            elif line.startswith('### '):
+                if in_table and table_rows:
+                    html_lines.append('<table>')
+                    html_lines.extend(table_rows)
+                    html_lines.append('</table>')
+                    table_rows = []
+                    in_table = False
+                    table_headers_processed = False
+
+                text = line[4:]
+                html_lines.append(f'<h3>{text}</h3>')
+            # 分隔线
+            elif line.strip() == '---':
+                if in_table and table_rows:
+                    html_lines.append('<table>')
+                    html_lines.extend(table_rows)
+                    html_lines.append('</table>')
+                    table_rows = []
+                    in_table = False
+                    table_headers_processed = False
+
+                html_lines.append('<hr>')
+            # 列表
+            elif line.startswith('- '):
+                if in_table and table_rows:
+                    html_lines.append('<table>')
+                    html_lines.extend(table_rows)
+                    html_lines.append('</table>')
+                    table_rows = []
+                    in_table = False
+                    table_headers_processed = False
+
+                text = line[2:]
+                text = text.replace('**', '<b>').replace('**', '</b>') if '**' in text else text
+                html_lines.append(f'<li>{text}</li>')
+            # 表格
+            elif '|' in line and line.strip():
+                in_table = True
+                cells = [c.strip() for c in line.split('|') if c.strip()]
+
+                # 判断是否是分隔行
+                is_separator = all(c.startswith('-') or c.startswith(':') or c.replace('-', '').replace(':', '').strip() == '' for c in cells)
+
+                if is_separator:
+                    table_headers_processed = True
+                elif cells:
+                    tag = 'th' if not table_headers_processed else 'td'
+                    row_html = '<tr>'
+                    for cell in cells:
+                        row_html += f'<{tag}>{cell}</{tag}>'
+                    row_html += '</tr>'
+                    table_rows.append(row_html)
+            # 表格结束（空行或其他内容）
+            elif in_table and table_rows:
+                html_lines.append('<table>')
+                html_lines.extend(table_rows)
+                html_lines.append('</table>')
+                table_rows = []
+                in_table = False
+                table_headers_processed = False
+
+                if not line.strip():
+                    html_lines.append('<br>')
+                else:
+                    # 普通文本
+                    text = line.replace('**', '<b>').replace('**', '</b>')
+                    html_lines.append(f'<p>{text}</p>')
+            # 空行
+            elif not line.strip():
+                html_lines.append('<br>')
+            # 普通文本
+            else:
+                text = line.replace('**', '<b>').replace('**', '</b>')
+                html_lines.append(f'<p>{text}</p>')
+
+        # 关闭未闭合的表格
+        if in_table and table_rows:
+            html_lines.append('<table>')
+            html_lines.extend(table_rows)
+            html_lines.append('</table>')
+
+        return '\n'.join(html_lines)
+
+    @staticmethod
+    def _convert_markdown_bold(text: str) -> str:
+        """将Markdown粗体标记转换为正确的HTML标记"""
+        import re
+        # 替换成对的 **...** 为 <b>...</b>
+        result = []
+        parts = text.split('**')
+        in_bold = False
+        for i, part in enumerate(parts):
+            if in_bold:
+                result.append(f'<b>{part}</b>')
+                in_bold = False
+            else:
+                if i < len(parts) - 1:
+                    result.append(part)
+                    in_bold = True
+                else:
+                    result.append(part)
+        return ''.join(result)
+
+    @staticmethod
+    def _generate_pdf_with_reportlab(markdown_content: str, filepath: str):
+        """
+        使用reportlab从Markdown生成PDF（简化版）
+
+        参数:
+            markdown_content: Markdown内容
+            filepath: 输出PDF文件路径
+        """
+        import os
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+
+        # 注册中文字体
+        chinese_font = 'Helvetica'
+        font_paths = [
+            r'C:\Windows\Fonts\simhei.ttf',
+            r'C:\Windows\Fonts\SimHei.ttf',
+            r'C:\Windows\Fonts\simsun.ttc',
+            r'C:\Windows\Fonts\SimSun.ttf',
+            r'/System/Library/Fonts/PingFang.ttc',
+            r'/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf',
+        ]
+
+        for font_path in font_paths:
+            if os.path.exists(font_path):
+                try:
+                    pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
+                    chinese_font = 'ChineseFont'
+                    break
+                except:
+                    continue
+
+        # 创建文档
+        doc = SimpleDocTemplate(
+            filepath,
+            pagesize=A4,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=18
+        )
+
+        # 样式
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(
+            name='ChineseTitle',
+            fontName=chinese_font,
+            fontSize=18,
+            leading=22,
+            spaceAfter=12,
+            textColor=colors.HexColor('#2c3e50'),
+            alignment=TA_CENTER
+        ))
+        styles.add(ParagraphStyle(
+            name='ChineseHeading',
+            fontName=chinese_font,
+            fontSize=14,
+            leading=18,
+            spaceAfter=10,
+            textColor=colors.HexColor('#34495e')
+        ))
+        styles.add(ParagraphStyle(
+            name='ChineseSubHeading',
+            fontName=chinese_font,
+            fontSize=12,
+            leading=16,
+            spaceAfter=8,
+            textColor=colors.HexColor('#7f8c8d')
+        ))
+        styles.add(ParagraphStyle(
+            name='ChineseNormal',
+            fontName=chinese_font,
+            fontSize=10,
+            leading=14,
+            spaceAfter=6,
+            textColor=colors.HexColor('#333333')
+        ))
+
+        # 解析Markdown内容
+        story = []
+        lines = markdown_content.split('\n')
+
+        for line in lines:
+            if not line.strip():
+                story.append(Spacer(1, 0.1 * inch))
+            elif line.startswith('# '):
+                # 标题
+                text = line[2:].strip()
+                story.append(Paragraph(text, styles['ChineseTitle']))
+                story.append(Spacer(1, 0.1 * inch))
+            elif line.startswith('## '):
+                # 二级标题
+                text = line[3:].strip()
+                story.append(Paragraph(text, styles['ChineseHeading']))
+                story.append(Spacer(1, 0.1 * inch))
+            elif line.startswith('### '):
+                # 三级标题
+                text = line[4:].strip()
+                story.append(Paragraph(text, styles['ChineseSubHeading']))
+            elif line.startswith('- '):
+                # 列表
+                text = line[2:].strip()
+                text = Reporter._convert_markdown_bold(text)
+                story.append(Paragraph(f'• {text}', styles['ChineseNormal']))
+            elif '|' in line and line.strip():
+                # 表格（简化处理，直接显示为文本）
+                text = line.replace('|', '  ')
+                text = Reporter._convert_markdown_bold(text)
+                story.append(Paragraph(text, styles['ChineseNormal']))
+            elif line.strip() == '---':
+                story.append(Spacer(1, 0.2 * inch))
+            else:
+                # 普通文本
+                text = Reporter._convert_markdown_bold(line)
+                if text.strip():
+                    story.append(Paragraph(text, styles['ChineseNormal']))
+
+        # 生成PDF
+        doc.build(story)

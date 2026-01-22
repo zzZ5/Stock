@@ -35,6 +35,16 @@ xgboost>=1.7.0
 # LightGBM（可选）
 lightgbm>=4.0.0
 
+# PDF生成（可选，多个选择）
+# 方案1: pdfkit（需要wkhtmltopdf，Windows友好，中文支持最好）
+pdfkit>=1.0.0
+
+# 方案2: weasyprint（需要GTK+依赖，Linux/Mac友好）
+# weasyprint>=60.0
+
+# 方案3: reportlab（纯Python，无需外部依赖）
+reportlab>=4.0.0
+
 # 测试框架
 pytest>=7.4.0
 pytest-cov>=4.1.0
