@@ -125,11 +125,16 @@ class BacktestEngine:
             logger.error(f"回测日期范围无效: {e}")
             return {}
 
-        # 获取交易日历
+        # 获取交易日历 - 需要足够的历史数据用于选股策略
+        # 策略可能需要回溯至少200天的历史数据（约250个日历日）
+        # 为了保险，从回测开始日期往前获取更多数据
         try:
+            # 计算需要的lookback天数：策略需要的历史 + 回测期间
+            # 假设策略需要250天日历，回测开始到结束可能1年，所以至少400天
+            # 保险起见，设置为800天
             all_trade_dates = self.fetcher.get_trade_cal(
                 end_date=self.config.end_date,
-                lookback_calendar_days=1000
+                lookback_calendar_days=800
             )
         except Exception as e:
             logger.error(f"获取交易日历失败: {e}")
@@ -273,14 +278,16 @@ class BacktestEngine:
 
         # 获取指数数据判断市场环境
         need_days = 120
-        idx_hist = self.fetcher.get_index_window(settings.INDEX_CODE, all_trade_dates, need_days)
+        # 确保有足够的历史数据用于选股
+        hist_trade_dates = self._get_trade_dates_before(trade_date, all_trade_dates, 200)
+        idx_hist = self.fetcher.get_index_window(settings.INDEX_CODE, hist_trade_dates, need_days)
         idx_hist = idx_hist.sort_values("trade_date")
         idx_close = idx_hist["close"].astype(float)
 
         market_ok = bool(sma(idx_close, 20).iloc[-1] > sma(idx_close, 60).iloc[-1])
 
         # 获取历史数据窗口
-        daily_hist = self.fetcher.get_daily_window(all_trade_dates, 160)
+        daily_hist = self.fetcher.get_daily_window(hist_trade_dates, 160)
 
         # 过滤基础股票信息
         basic_all = self.fetcher.get_stock_basic()
@@ -348,6 +355,26 @@ class BacktestEngine:
 
         print(f"  -> 开仓数量: {opened_count}, 当前持仓: {len(self.positions)}")
         return capital
+
+    def _get_trade_dates_before(self, trade_date: str, all_trade_dates: List[str], n: int) -> List[str]:
+        """
+        获取指定日期及之前N个交易日
+
+        参数:
+            trade_date: 目标日期
+            all_trade_dates: 所有交易日历
+            n: 需要的交易日数
+
+        返回:
+            从trade_date往前推n个交易日的列表（包含trade_date）
+        """
+        if trade_date not in all_trade_dates:
+            logger.warning(f"{trade_date} 不在交易日历中")
+            return []
+
+        idx = all_trade_dates.index(trade_date)
+        start_idx = max(0, idx - n + 1)
+        return all_trade_dates[start_idx:idx + 1]
 
     def _close_position(self, ts_code: str, exit_price: float,
                        exit_date: str, reason: str, capital: float) -> float:

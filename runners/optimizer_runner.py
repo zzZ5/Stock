@@ -57,16 +57,33 @@ def grid_search_example():
     # 参数网格（可根据需要调整）
     # 注意：组合数量 = len(values1) * len(values2) * ...
     # 组合越多，优化时间越长
-    param_grid = {
-        'BREAKOUT_N': [50, 60, 70],           # 日线突破周期
-        'WEEKLY_BREAKOUT_N': [8, 12, 16],     # 周线突破周期
-        'MONTHLY_BREAKOUT_N': [4, 6, 8],      # 月线突破周期
-        'MULTI_TIMEFRAME_MODE': [True],       # 多周期模式（可添加False对比）
-        'MA_FAST': [15, 20, 25],              # 快速均线
-        'MA_SLOW': [50, 60, 70],              # 慢速均线
-        'VOL_CONFIRM_MULT': [1.2, 1.5, 2.0],   # 量能确认倍数
-        'RSI_MAX': [70, 75, 80],              # RSI最大值
-    }
+    # 快速测试模式：2*2*2*1*2*2*2*2 = 128组合
+    # 完整测试模式：3*3*3*1*3*3*3*3 = 2187组合
+    quick_test = True  # 设为True使用快速测试，False使用完整测试
+    if quick_test:
+        param_grid = {
+            'BREAKOUT_N': [50, 60],               # 日线突破周期
+            'WEEKLY_BREAKOUT_N': [8, 12],          # 周线突破周期
+            'MONTHLY_BREAKOUT_N': [4, 6],           # 月线突破周期
+            'MULTI_TIMEFRAME_MODE': [True],           # 多周期模式
+            'MA_FAST': [15, 20],                  # 快速均线
+            'MA_SLOW': [50, 60],                  # 慢速均线
+            'VOL_CONFIRM_MULT': [1.2, 1.5],         # 量能确认倍数
+            'RSI_MAX': [70, 75],                   # RSI最大值
+        }
+        print("\n【快速测试模式】")
+    else:
+        param_grid = {
+            'BREAKOUT_N': [50, 60, 70],           # 日线突破周期
+            'WEEKLY_BREAKOUT_N': [8, 12, 16],     # 周线突破周期
+            'MONTHLY_BREAKOUT_N': [4, 6, 8],      # 月线突破周期
+            'MULTI_TIMEFRAME_MODE': [True],       # 多周期模式（可添加False对比）
+            'MA_FAST': [15, 20, 25],              # 快速均线
+            'MA_SLOW': [50, 60, 70],              # 慢速均线
+            'VOL_CONFIRM_MULT': [1.2, 1.5, 2.0],   # 量能确认倍数
+            'RSI_MAX': [70, 75, 80],              # RSI最大值
+        }
+        print("\n【完整测试模式】")
 
     print(f"\n参数网格:")
     for name, values in param_grid.items():
@@ -139,16 +156,31 @@ def walk_forward_example():
     )
 
     # 参数网格（为了加快速度，使用较小网格）
-    param_grid = {
-        'BREAKOUT_N': [50, 60, 70],
-        'WEEKLY_BREAKOUT_N': [8, 12, 16],
-        'MONTHLY_BREAKOUT_N': [4, 6, 8],
-        'MULTI_TIMEFRAME_MODE': [True],
-        'MA_FAST': [15, 20],
-        'MA_SLOW': [50, 60],
-        'VOL_CONFIRM_MULT': [1.2, 1.5],
-        'RSI_MAX': [70, 75]
-    }
+    quick_test = True  # 设为True使用快速测试，False使用完整测试
+    if quick_test:
+        param_grid = {
+            'BREAKOUT_N': [50, 60],
+            'WEEKLY_BREAKOUT_N': [8, 12],
+            'MONTHLY_BREAKOUT_N': [4, 6],
+            'MULTI_TIMEFRAME_MODE': [True],
+            'MA_FAST': [15, 20],
+            'MA_SLOW': [50, 60],
+            'VOL_CONFIRM_MULT': [1.2, 1.5],
+            'RSI_MAX': [70, 75]
+        }
+        print("\n【快速测试模式】")
+    else:
+        param_grid = {
+            'BREAKOUT_N': [50, 60, 70],
+            'WEEKLY_BREAKOUT_N': [8, 12, 16],
+            'MONTHLY_BREAKOUT_N': [4, 6, 8],
+            'MULTI_TIMEFRAME_MODE': [True],
+            'MA_FAST': [15, 20],
+            'MA_SLOW': [50, 60],
+            'VOL_CONFIRM_MULT': [1.2, 1.5],
+            'RSI_MAX': [70, 75]
+        }
+        print("\n【完整测试模式】")
 
     print(f"\n参数网格:")
     for name, values in param_grid.items():

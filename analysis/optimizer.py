@@ -8,6 +8,8 @@ from typing import Dict, List, Tuple
 import itertools
 from tqdm import tqdm
 from datetime import datetime, timedelta
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing as mp
 
 from .backtest import BacktestEngine, BacktestConfig
 from config.settings import settings
@@ -27,11 +29,111 @@ class ParameterOptimizer:
         self.fetcher = fetcher
         self.backtest_config = backtest_config
         self.results_history = []
+        self.n_workers = min(mp.cpu_count(), 8)  # 限制最大8个进程
+        # 预加载基础数据，避免重复获取
+        self.basic_all_cache = None
+
+    @staticmethod
+    def _run_single_backtest(params_tuple: Tuple) -> Dict:
+        """
+        在独立进程中运行单个参数组合的回测
+        用于多进程并行优化
+
+        参数:
+            params_tuple: (params_dict, param_names, backtest_config_dict)
+
+        返回:
+            回测结果字典
+        """
+        import sys
+        import os
+
+        # 在子进程中重新导入必要的模块
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+        from config.settings import settings
+        from analysis.backtest import BacktestEngine, BacktestConfig
+        from strategy import StockStrategy
+        from core.data_fetcher import DataFetcher
+
+        params_dict, param_names, backtest_config_dict = params_tuple
+
+        # 创建独立的fetcher实例
+        token = os.getenv("TUSHARE_TOKEN", "706b1dbca05800fea1d77c3a727f6ad5e0b3a1d0687f8a4e3266fe9c")
+        from core.utils import RateLimiter
+        fetcher = DataFetcher(token, RateLimiter(max_calls_per_minute=200))
+
+        # 创建回测配置
+        backtest_config = BacktestConfig(**backtest_config_dict)
+
+        # 更新参数
+        for i, name in enumerate(param_names):
+            setattr(settings, name, params_dict[i])
+
+        # 运行回测
+        basic_all = fetcher.get_stock_basic()
+        strategy = StockStrategy(basic_all)
+
+        engine = BacktestEngine(backtest_config, strategy, fetcher)
+        result = engine.run()
+
+        # 计算综合得分
+        score = ParameterOptimizer._calculate_composite_score_static(result)
+
+        # 记录结果
+        result_row = {
+            **{name: params_dict[i] for i, name in enumerate(param_names)},
+            'total_return': result.get('total_return', 0),
+            'annual_return': result.get('annual_return', 0),
+            'sharpe_ratio': result.get('sharpe_ratio', 0),
+            'max_drawdown': result.get('max_drawdown', 0),
+            'win_rate': result.get('win_rate', 0),
+            'profit_factor': result.get('profit_factor', 0),
+            'total_trades': result.get('total_trades', 0),
+            'score': score
+        }
+
+        return result_row
+
+    @staticmethod
+    def _calculate_composite_score_static(result: Dict) -> float:
+        """
+        静态方法版本的综合得分计算（用于多进程）
+
+        参数:
+            result: 回测结果字典
+
+        返回:
+            综合得分
+        """
+        if not result:
+            return 0.0
+
+        # 提取指标
+        annual_return = result.get('annual_return', 0) / 100
+        sharpe_ratio = result.get('sharpe_ratio', 0)
+        max_drawdown = abs(result.get('max_drawdown', 0)) / 100
+        win_rate = result.get('win_rate', 0) / 100
+
+        # 归一化
+        normalized_return = min(max(annual_return / 0.5, 0), 1)
+        normalized_sharpe = min(max(sharpe_ratio / 3.0, 0), 1)
+        normalized_drawdown = min(max(1 - max_drawdown / 0.5, 0), 1)
+        normalized_winrate = min(max((win_rate - 0.5) / 0.2, 0), 1)
+
+        # 计算综合得分
+        score = (0.4 * normalized_return +
+                 0.3 * normalized_sharpe -
+                 0.2 * normalized_drawdown +
+                 0.1 * normalized_winrate)
+
+        return score
 
     def grid_search(self, param_grid: Dict[str, List],
-                    show_progress: bool = True) -> pd.DataFrame:
+                    show_progress: bool = True,
+                    use_multiprocessing: bool = True) -> pd.DataFrame:
         """
-        网格搜索最优参数
+        网格搜索最优参数（支持多进程）
 
         参数:
             param_grid: 参数网格字典
@@ -43,6 +145,7 @@ class ParameterOptimizer:
                     'RSI_MAX': [70, 75, 80]
                 }
             show_progress: 是否显示进度条
+            use_multiprocessing: 是否使用多进程（默认True）
 
         返回:
             包含所有参数组合结果的DataFrame，按综合得分排序
@@ -58,49 +161,92 @@ class ParameterOptimizer:
         for name, values in param_grid.items():
             print(f"  {name}: {values}")
         print(f"总组合数: {len(param_combinations)}")
+        if use_multiprocessing:
+            print(f"使用多进程: {self.n_workers} 个worker")
         print(f"{'='*70}\n")
 
-        # 遍历所有参数组合
-        iterator = tqdm(param_combinations, desc="参数优化") if show_progress else param_combinations
+        # 准备回测配置字典（用于序列化）
+        backtest_config_dict = {
+            'start_date': self.backtest_config.start_date,
+            'end_date': self.backtest_config.end_date,
+            'initial_capital': self.backtest_config.initial_capital,
+            'max_positions': self.backtest_config.max_positions,
+            'position_size': self.backtest_config.position_size,
+            'slippage': self.backtest_config.slippage,
+            'commission': self.backtest_config.commission,
+            'stop_loss': self.backtest_config.stop_loss,
+            'take_profit': self.backtest_config.take_profit,
+            'max_holding_days': self.backtest_config.max_holding_days,
+            'rebalance_days': self.backtest_config.rebalance_days
+        }
 
-        for params in iterator:
-            # 保存原始参数
-            original_params = {}
-            for name in param_names:
-                original_params[name] = getattr(settings, name)
+        if use_multiprocessing and len(param_combinations) > 4:
+            # 多进程模式
+            results_list = []
 
-            # 更新参数
-            for i, name in enumerate(param_names):
-                setattr(settings, name, params[i])
+            # 准备任务列表
+            tasks = [(list(params), param_names, backtest_config_dict)
+                     for params in param_combinations]
 
-            # 运行回测
-            from strategy import StockStrategy
-            basic_all = self.fetcher.get_stock_basic()
-            strategy = StockStrategy(basic_all)
+            # 使用进程池并行执行
+            with ProcessPoolExecutor(max_workers=self.n_workers) as executor:
+                futures = {executor.submit(self._run_single_backtest, task): task for task in tasks}
 
-            engine = BacktestEngine(self.backtest_config, strategy, self.fetcher)
-            result = engine.run()
+                # 使用tqdm显示进度
+                with tqdm(total=len(tasks), desc="参数优化") if show_progress else tasks as pbar:
+                    for future in as_completed(futures):
+                        try:
+                            result = future.result()
+                            results_list.append(result)
+                        except Exception as e:
+                            print(f"\n回测失败: {e}")
+                        finally:
+                            if show_progress:
+                                pbar.update(1)
 
-            # 计算综合得分
-            score = self._calculate_composite_score(result)
+            results = results_list
+        else:
+            # 单进程模式（用于调试或少量组合）
+            iterator = tqdm(param_combinations, desc="参数优化") if show_progress else param_combinations
 
-            # 记录结果
-            result_row = {
-                **{name: params[i] for i, name in enumerate(param_names)},
-                'total_return': result.get('total_return', 0),
-                'annual_return': result.get('annual_return', 0),
-                'sharpe_ratio': result.get('sharpe_ratio', 0),
-                'max_drawdown': result.get('max_drawdown', 0),
-                'win_rate': result.get('win_rate', 0),
-                'profit_factor': result.get('profit_factor', 0),
-                'total_trades': result.get('total_trades', 0),
-                'score': score
-            }
-            results.append(result_row)
+            for params in iterator:
+                # 保存原始参数
+                original_params = {}
+                for name in param_names:
+                    original_params[name] = getattr(settings, name)
 
-            # 恢复原始参数
-            for name in param_names:
-                setattr(settings, name, original_params[name])
+                # 更新参数
+                for i, name in enumerate(param_names):
+                    setattr(settings, name, params[i])
+
+                # 运行回测
+                from strategy import StockStrategy
+                basic_all = self.fetcher.get_stock_basic()
+                strategy = StockStrategy(basic_all)
+
+                engine = BacktestEngine(self.backtest_config, strategy, self.fetcher)
+                result = engine.run()
+
+                # 计算综合得分
+                score = self._calculate_composite_score(result)
+
+                # 记录结果
+                result_row = {
+                    **{name: params[i] for i, name in enumerate(param_names)},
+                    'total_return': result.get('total_return', 0),
+                    'annual_return': result.get('annual_return', 0),
+                    'sharpe_ratio': result.get('sharpe_ratio', 0),
+                    'max_drawdown': result.get('max_drawdown', 0),
+                    'win_rate': result.get('win_rate', 0),
+                    'profit_factor': result.get('profit_factor', 0),
+                    'total_trades': result.get('total_trades', 0),
+                    'score': score
+                }
+                results.append(result_row)
+
+                # 恢复原始参数
+                for name in param_names:
+                    setattr(settings, name, original_params[name])
 
         # 转换为DataFrame并排序
         df = pd.DataFrame(results)
